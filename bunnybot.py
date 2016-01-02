@@ -311,9 +311,6 @@ def main():
 
     # NOCOM(#sirver): delete branches that are never mentioned.
     dump_state(config["state_file"], merge_requests, branches)
-
-    subprocess.check_call(["git", "gc", "--aggressive"],
-                          cwd=config["git_repo"])
     return 0
 
 
