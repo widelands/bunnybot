@@ -12,4 +12,11 @@ Consequently, it needs bzr and git configured for its credentials. This is
 usually best done by running it as a separate user and manually setting up git
 and bzr.
 
+You need a remote called 'github' which points to
+the repository you want to use as the mirror source on GitHub. For Widelands
+that would be http://github.com/widelands/widelands.
+
+You need to register SSH keys for the GitHub and Launchpad users.
 TODO(sirver): Add a config.json sample.
+
+You also need git-remote-bzr in your path. https://github.com/felipec/git-remote-bzr
