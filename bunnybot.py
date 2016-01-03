@@ -30,7 +30,7 @@ def build_greeting(branch):
         % (branch.name, branch.slug),
         "",
         "You can give me commands by starting a line with @bunnybot <command>. I understand: ",
-        " merge: Merges the source branch into the target branch, closing the pull request."
+        " merge: Merges the source branch into the target branch, closing the merge proposal."
     ]
     return "\n".join(lines)
 
@@ -194,7 +194,7 @@ def run_bzr(args, cwd=None):
     subprocess.check_call(["bzr"] + args, cwd=cwd)
 
 
-def get_merge_requests(project, bzr_repo):
+def get_merge_proposals(project, bzr_repo):
     merge_proposals = [m for m in project.getMergeProposals()
                        if m.queue_status != u"Work in progress"]
 
@@ -239,7 +239,7 @@ class MergeRequest(object):
     def new_comments(self, old_state):
         """Returns all new comments since this script ran the last time."""
         # NOCOM(#sirver): rename to merge proposals everywhere
-        for proposal in old_state.get('merge_requests', []):
+        for proposal in old_state.get('merge_proposals', []):
             if (proposal['target_branch'] == self.target_branch.name and
                 proposal['source_branch'] == self.source_branch.name):
                 return self._comments[proposal['num_comments']:]
@@ -280,9 +280,9 @@ class MergeRequest(object):
                 self._merge()
 
 
-def dump_state(json_file, merge_requests, branches):
+def dump_state(json_file, merge_proposals, branches):
     state = {}
-    state['merge_requests'] = [m.serialize() for m in merge_requests]
+    state['merge_proposals'] = [m.serialize() for m in merge_proposals]
     branch_state = {
         branch.name: branch.serialize()
         for branch in branches.values()
@@ -359,11 +359,11 @@ def main():
                               "production",
                               credentials_file=config["launchpad_credentials"])
     project = lp.projects["widelands"]
-    merge_requests, branches = get_merge_requests(project, config["bzr_repo"])
-    for merge_request in merge_requests:
-        merge_request.handle(old_state, config["git_repo"])
+    merge_proposals, branches = get_merge_proposals(project, config["bzr_repo"])
+    for merge_proposal in merge_proposals:
+        merge_proposal.handle(old_state, config["git_repo"])
 
-    dump_state(config["state_file"], merge_requests, branches)
+    dump_state(config["state_file"], merge_proposals, branches)
 
     update_git_master(config["master_mirrors"], config["bzr_repo"],
                       config["git_repo"])
