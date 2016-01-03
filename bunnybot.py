@@ -10,16 +10,44 @@ import re
 import subprocess
 import urllib2
 
-# NOCOM(#sirver): we need to do this to be clean
-#  find . -name '*.BASE' -print0 | xargs -0 rm -rv
-#  find . -name '*.OTHER' -print0 | xargs -0 rm -rv
-#  find . -name '*.THIS' -print0 | xargs -0 rm -rv
-#  find . -name '*.moved' -print0 | xargs -0 rm -rv
-#  find . -name '*.pyc' -print0 | xargs -0 rm -rv
-#  find . -name '*~?~' -print0 | xargs -0 rm -rv
-#  find . -name '.DS_Store' -print0 | xargs -0 rm -rv
-
 GREETING_LINE = "Hi, I am bunnybot (https://github.com/widelands/bunnybot)."
+
+
+class ProcessFailed(Exception):
+    """subprocess.CalledProcessError does not satisfy our needs, so we roll our
+    own class here."""
+
+    def __init__(self, command, stdout):
+        self.command = command
+        self.stdout = stdout
+
+    def __str__(self):
+        return "Running '%s' failed. Output:\n\n%s" % (
+                self.command, self.stdout)
+
+
+def run_command(command, cwd=None, verbose=True):
+    if verbose:
+        print("-> %s%s" % (
+            " ".join(command), "" if cwd is None else " [%s]" % cwd))
+    process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            stdin=None,
+            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
+            )
+
+    out, err = process.communicate()
+    assert err is None
+
+    if verbose:
+        for line in out.splitlines():
+            print "  %s" % line
+
+    if process.returncode != 0:
+        raise ProcessFailed(" ".join(command), out)
+    return out
 
 
 def build_greeting(branch):
@@ -60,11 +88,11 @@ class Branch(object):
         return re.sub(r"[^A-Za-z0-9]", "_", self._name)
 
     def branch(self):
-        run_bzr("branch lp:%s %s" % (self.name, self._path))
+        run_command(["bzr", "branch", "lp:%s %s" % (self.name, self._path)])
         self._revon = self._get_revno()
 
     def pull(self):
-        run_bzr("pull", cwd=self._path)
+        run_command(["bzr", "pull"], cwd=self._path)
         self._revon = self._get_revno()
 
     def update(self):
@@ -74,10 +102,10 @@ class Branch(object):
         return self.branch()
 
     def push(self):
-        run_bzr("push :parent", cwd=self._path)
+        run_command(["bzr", "push", ":parent"], cwd=self._path)
 
     def _get_revno(self):
-        return int(subprocess.check_output(["bzr", "revno"], cwd=self._path))
+        return int(run_command(["bzr", "revno"], cwd=self._path, verbose=False))
 
     @property
     def revno(self):
@@ -96,12 +124,11 @@ class Branch(object):
         return os.path.isdir(self._path)
 
     def merge_source(self, source):
-        print("-> Merging %s into %s" % (source.name, self.name))
         source_path = source._path
-        subprocess.check_call(
+        run_command(
             ["bzr", "merge", os.path.relpath(source_path, self._path)],
             cwd=self._path)
-        subprocess.check_call(
+        run_command(
             ["bzr", "commit", "-m", "Merged lp:%s" % source.name],
             cwd=self._path)
         self.push()
@@ -110,21 +137,18 @@ class Branch(object):
         """Creates or updates a branch in git branch named 'slug' that track
         the bzr branch in the bzr_repo."""
         if self.slug not in git_remotes(git_repo):
-            subprocess.check_call(
+            run_command(
                 ["git", "remote", "add", self.slug,
                  "bzr::" + os.path.relpath(self._path, git_repo)],
                 cwd=git_repo)
-        subprocess.check_call(["git", "fetch", self.slug], cwd=git_repo)
+        run_command(["git", "fetch", self.slug], cwd=git_repo)
         if self.slug not in git_branches(git_repo):
-            subprocess.check_call(
-                ["git", "branch", "--track", self.slug, "%s/master" % self.slug
-                 ],
+            run_command(
+                ["git", "branch", "--track", self.slug, "%s/master" % self.slug],
                 cwd=git_repo)
         git_checkout_branch(git_repo, self.slug)
-        subprocess.check_call(["git", "pull"], cwd=git_repo)
-        subprocess.check_call(
-            ["git", "push", "github", self.slug],
-            cwd=git_repo)
+        run_command(["git", "pull"], cwd=git_repo)
+        run_command(["git", "push", "github", self.slug], cwd=git_repo)
 
     @property
     def travis_state(self):
@@ -149,15 +173,15 @@ class Branch(object):
 
 
 def git_remotes(git_repo):
-    return set(line.strip() for line in subprocess.check_output(
+    return set(line.strip() for line in run_command(
         ["git", "remote"],
-        cwd=git_repo).splitlines())
+        cwd=git_repo, verbose=False).splitlines())
 
 
 def git_branches(git_repo):
-    lines = subprocess.check_output(
+    lines = run_command(
         ["git", "branch"],
-        cwd=git_repo).splitlines()
+        cwd=git_repo, verbose=False).splitlines()
     branches = set()
     for line in lines:
         if line.startswith("*"):
@@ -167,13 +191,13 @@ def git_branches(git_repo):
 
 
 def git_delete_remote(git_repo, branch_name):
-    subprocess.check_call(
+    run_command(
         ["git", "remote", "remove", branch_name],
         cwd=git_repo)
 
 
 def git_delete_remote_branch(git_repo, branch_name):
-    subprocess.check_call(
+    run_command(
         ["git", "push", "github", ":" + branch_name],
         cwd=git_repo)
 
@@ -183,15 +207,9 @@ def git_delete_local_branch(git_repo, branch_name):
         raise RuntimeError("Cannot delete master branch.")
 
     git_checkout_branch(git_repo, "master")
-    subprocess.check_call(
+    run_command(
         ["git", "branch", "-D", branch_name],
         cwd=git_repo)
-
-
-def run_bzr(args, cwd=None):
-    print("-> bzr %s%s" % (args, "" if cwd is None else " [%s]" % cwd))
-    args = args.split(" ")
-    subprocess.check_call(["bzr"] + args, cwd=cwd)
 
 
 def get_merge_proposals(project, bzr_repo):
@@ -202,7 +220,7 @@ def get_merge_proposals(project, bzr_repo):
     for proposal in merge_proposals:
         for branch in (proposal.target_branch, proposal.source_branch):
             branches[branch.unique_name] = Branch(branch.unique_name, bzr_repo)
-    return [MergeRequest(m, branches) for m in merge_proposals], branches
+    return [MergeProposal(m, branches) for m in merge_proposals], branches
 
 
 def read_config():
@@ -217,7 +235,7 @@ def read_config():
     return json.load(open(args.config, "r"))
 
 
-class MergeRequest(object):
+class MergeProposal(object):
     def __init__(self, lp_object, branches):
         self.source_branch = branches[lp_object.source_branch.unique_name]
         self.target_branch = branches[lp_object.target_branch.unique_name]
@@ -238,7 +256,6 @@ class MergeRequest(object):
 
     def new_comments(self, old_state):
         """Returns all new comments since this script ran the last time."""
-        # NOCOM(#sirver): rename to merge proposals everywhere
         for proposal in old_state.get('merge_proposals', []):
             if (proposal['target_branch'] == self.target_branch.name and
                 proposal['source_branch'] == self.source_branch.name):
@@ -276,8 +293,17 @@ class MergeRequest(object):
 
         for c in self.new_comments(old_state):
             if re.search("^@bunnybot.*merge", c, re.MULTILINE) is not None:
-                # NOCOM(#sirver): this should report errors
                 self._merge()
+
+    def report_exception(self, exception):
+        lines = [
+            "Bunnybot encountered an error while working on this merge proposal:",
+            "",
+            str(exception),
+        ]
+        self._lp_object.createComment(
+                subject="Bunnybot says...",
+                content="\n".join(lines))
 
 
 def dump_state(json_file, merge_proposals, branches):
@@ -304,7 +330,7 @@ def load_state(json_file):
 
 
 def git_checkout_branch(git_repo, branch_name):
-    subprocess.check_call(["git", "checkout", branch_name], cwd=git_repo)
+    run_command(["git", "checkout", branch_name], cwd=git_repo)
 
 
 def update_git_master(trunk_name, bzr_repo, git_repo):
@@ -314,10 +340,10 @@ def update_git_master(trunk_name, bzr_repo, git_repo):
 
     # Merge trunk into master and push to github.
     git_checkout_branch(git_repo, "master")
-    subprocess.check_call(
+    run_command(
         ["git", "merge", "--ff-only", trunk.slug],
         cwd=git_repo)
-    subprocess.check_call(["git", "push", "github", "master"], cwd=git_repo)
+    run_command(["git", "push", "github", "master"], cwd=git_repo)
 
 
 def delete_unmentioned_branches(branches, bzr_repo, git_repo):
@@ -331,21 +357,21 @@ def delete_unmentioned_branches(branches, bzr_repo, git_repo):
         # Ignore errors - most likely some branches where not really there.
         try:
             git_delete_remote(git_repo, slug)
-        except subprocess.CalledProcessError as error:
+        except ProcessFailed as error:
             print(error)
 
         try:
             git_delete_remote_branch(git_repo, slug)
-        except subprocess.CalledProcessError as error:
+        except ProcessFailed as error:
             print(error)
 
         try:
             git_delete_local_branch(git_repo, slug)
-        except subprocess.CalledProcessError as error:
+        except ProcessFailed as error:
             print(error)
 
         # shutil.rmtree chokes on some of our filenames.
-        subprocess.check_call(["rm", "-rf", os.path.join(bzr_repo, slug)])
+        run_command(["rm", "-rf", os.path.join(bzr_repo, slug)])
 
 
 def main():
@@ -354,14 +380,22 @@ def main():
     old_state = load_state(config["state_file"])
 
     if not os.path.isdir(config["bzr_repo"]):
-        run_bzr("init-repo %s" % config["bzr_repo"])
+        run_command(["bzr", "init-repo", config["bzr_repo"]])
     lp = Launchpad.login_with("wideland's bunnybot",
                               "production",
                               credentials_file=config["launchpad_credentials"])
     project = lp.projects["widelands"]
-    merge_proposals, branches = get_merge_proposals(project, config["bzr_repo"])
+    merge_proposals, branches = get_merge_proposals(
+            project, config["bzr_repo"])
     for merge_proposal in merge_proposals:
-        merge_proposal.handle(old_state, config["git_repo"])
+        print "===> Working on %s -> %s" % (
+                merge_proposal.source_branch.name,
+                merge_proposal.target_branch.name)
+        try:
+            merge_proposal.handle(old_state, config["git_repo"])
+        except Exception as e:
+            merge_proposal.report_exception(e)
+        print "\n\n"
 
     dump_state(config["state_file"], merge_proposals, branches)
 
