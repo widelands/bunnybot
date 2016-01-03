@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
+from glob import glob
 from launchpadlib.launchpad import Launchpad
 import argparse
 import json
@@ -23,9 +24,11 @@ GREETING_LINE = "Hi, I am bunnybot (https://github.com/widelands/bunnybot)."
 
 def build_greeting(branch):
     lines = [
-        GREETING_LINE, "",
+        GREETING_LINE,
+        "",
         "I am keeping the source branch lp:%s mirrored to https://github.com/widelands/widelands/tree/%s"
-        % (branch.name, branch.slug), "",
+        % (branch.name, branch.slug),
+        "",
         "You can give me commands by starting a line with @bunnybot <command>. I understand: ",
         " merge: Merges the source branch into the target branch, closing the pull request."
     ]
@@ -117,7 +120,7 @@ class Branch(object):
                 ["git", "branch", "--track", self.slug, "%s/master" % self.slug
                  ],
                 cwd=git_repo)
-        subprocess.check_call(["git", "checkout", self.slug], cwd=git_repo)
+        git_checkout_branch(git_repo, self.slug)
         subprocess.check_call(["git", "pull"], cwd=git_repo)
         subprocess.check_call(
             ["git", "push", "github", self.slug],
@@ -161,6 +164,28 @@ def git_branches(git_repo):
             line = line[2:]
         branches.add(line.strip())
     return branches
+
+
+def git_delete_remote(git_repo, branch_name):
+    subprocess.check_call(
+        ["git", "remote", "remove", branch_name],
+        cwd=git_repo)
+
+
+def git_delete_remote_branch(git_repo, branch_name):
+    subprocess.check_call(
+        ["git", "push", "github", ":" + branch_name],
+        cwd=git_repo)
+
+
+def git_delete_local_branch(git_repo, branch_name):
+    if branch_name == "master":
+        raise RuntimeError("Cannot delete master branch.")
+
+    git_checkout_branch(git_repo, "master")
+    subprocess.check_call(
+        ["git", "branch", "-D", branch_name],
+        cwd=git_repo)
 
 
 def run_bzr(args, cwd=None):
@@ -278,17 +303,49 @@ def load_state(json_file):
         return json.load(json_file)
 
 
+def git_checkout_branch(git_repo, branch_name):
+    subprocess.check_call(["git", "checkout", branch_name], cwd=git_repo)
+
+
 def update_git_master(trunk_name, bzr_repo, git_repo):
     trunk = Branch(trunk_name, bzr_repo)
     trunk.update()
     trunk.update_git(git_repo)
 
     # Merge trunk into master and push to github.
-    subprocess.check_call(["git", "checkout", "master"], cwd=git_repo)
+    git_checkout_branch(git_repo, "master")
     subprocess.check_call(
         ["git", "merge", "--ff-only", trunk.slug],
         cwd=git_repo)
     subprocess.check_call(["git", "push", "github", "master"], cwd=git_repo)
+
+
+def delete_unmentioned_branches(branches, bzr_repo, git_repo):
+    branches_slugs = set(b.slug for b in branches.values())
+    checked_out_bzr_branches = set(
+            os.path.basename(d) for d in glob(os.path.join(bzr_repo, "*")) if
+            os.path.isdir(d))
+
+    for slug in (checked_out_bzr_branches - branches_slugs):
+        print "Deleting %s which is not mentioned anymore." % slug
+        # Ignore errors - most likely some branches where not really there.
+        try:
+            git_delete_remote(git_repo, slug)
+        except subprocess.CalledProcessError as error:
+            print(error)
+
+        try:
+            git_delete_remote_branch(git_repo, slug)
+        except subprocess.CalledProcessError as error:
+            print(error)
+
+        try:
+            git_delete_local_branch(git_repo, slug)
+        except subprocess.CalledProcessError as error:
+            print(error)
+
+        # shutil.rmtree chokes on some of our filenames.
+        subprocess.check_call(["rm", "-rf", os.path.join(bzr_repo, slug)])
 
 
 def main():
@@ -306,11 +363,12 @@ def main():
     for merge_request in merge_requests:
         merge_request.handle(old_state, config["git_repo"])
 
+    dump_state(config["state_file"], merge_requests, branches)
+
     update_git_master(config["master_mirrors"], config["bzr_repo"],
                       config["git_repo"])
-
-    # NOCOM(#sirver): delete branches that are never mentioned.
-    dump_state(config["state_file"], merge_requests, branches)
+    delete_unmentioned_branches(
+            branches, config["bzr_repo"], config["git_repo"])
     return 0
 
 
