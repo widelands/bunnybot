@@ -155,13 +155,22 @@ class Branch(object):
     def travis_state(self):
         return self._travis_state
 
-    def update_travis_state(self):
+    def update_travis_state(self, old_travis_state):
         """Checks if there is a travis state available for this branch."""
         url = "https://api.travis-ci.org/repos/widelands/widelands/branches/%s" % self.slug
         try:
             data = urllib2.urlopen(url).read()
             d = json.loads(data)
-            self._travis_state = d.get("branch", None)
+            branch = d.get("branch", None)
+            self._travis_state = {
+                "state": branch["state"],
+                "number": branch["number"],
+                "id": branch["id"],
+            }
+
+            # No reason to report transient states
+            if self._travis_state["state"] not in ("passed", "failed", "errored", "canceled"):
+                self._travis_state["state"] = old_travis_state
         except urllib2.HTTPError as error:
             if error.code != 404:
                 raise error
@@ -265,7 +274,12 @@ class MergeProposal(object):
 
     def handle(self, old_state, git_repo):
         self.source_branch.update()
-        self.source_branch.update_travis_state()
+
+        old_travis_state = old_state['branches'].get(
+            self.source_branch.name, {}).get(
+                "travis_state", {}).get("state", None)
+
+        self.source_branch.update_travis_state(old_travis_state)
         self.source_branch.update_git(git_repo)
 
         # Post the greeting if it was not yet posted.
@@ -284,9 +298,6 @@ class MergeProposal(object):
         current_travis_state = self.source_branch.travis_state.get(
                 "state", None)
         if current_travis_state is not None:
-            old_travis_state = old_state['branches'].get(
-                self.source_branch.name, {}).get(
-                    "travis_state", {}).get("state", None)
             if old_travis_state != current_travis_state:
                 self._lp_object.createComment(
                     subject="Bunnybot says...",
