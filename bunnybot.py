@@ -6,6 +6,7 @@ from launchpadlib.launchpad import Launchpad
 import argparse
 import json
 import os
+import pid
 import re
 import subprocess
 import urllib2
@@ -407,5 +408,9 @@ def main():
 
 
 if __name__ == '__main__':
-    import sys
-    sys.exit(main())
+    try:
+        with pid.PidFile(piddir="."):
+            main()
+    except pid.PidFileAlreadyLockedError:
+        print "PID file exists. Cowardly refusing to work."
+        pass
