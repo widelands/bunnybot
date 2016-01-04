@@ -9,6 +9,7 @@ import os
 import pid
 import re
 import subprocess
+import time
 import urllib2
 
 GREETING_LINE = "Hi, I am bunnybot (https://github.com/widelands/bunnybot)."
@@ -25,6 +26,21 @@ class ProcessFailed(Exception):
     def __str__(self):
         return "Running '%s' failed. Output:\n\n%s" % (
                 self.command, self.stdout)
+
+
+def retry_on_dns_failure(function):
+    """
+    Git push and pull seem to transiently fail on DNS failures for github.com
+    (of all things). We hack around this by sleeping and retrying.
+    """
+    while True:
+        try:
+            function()
+            break
+        except ProcessFailed as e:
+            if "Name or service not known" not in e.stdout:
+                raise
+            time.sleep(5)
 
 
 def run_command(command, cwd=None, verbose=True):
@@ -93,7 +109,8 @@ class Branch(object):
         self._revon = self._get_revno()
 
     def pull(self):
-        run_command(["bzr", "pull"], cwd=self._path)
+        retry_on_dns_failure(
+                lambda: run_command(["bzr", "pull"], cwd=self._path))
         self._revon = self._get_revno()
 
     def update(self):
@@ -103,7 +120,8 @@ class Branch(object):
         return self.branch()
 
     def push(self):
-        run_command(["bzr", "push", ":parent"], cwd=self._path)
+        retry_on_dns_failure(
+                lambda: run_command(["bzr", "push", ":parent"], cwd=self._path))
 
     def _get_revno(self):
         return int(run_command(["bzr", "revno"], cwd=self._path, verbose=False))
@@ -148,8 +166,9 @@ class Branch(object):
                 ["git", "branch", "--track", self.slug, "%s/master" % self.slug],
                 cwd=git_repo)
         git_checkout_branch(git_repo, self.slug)
-        run_command(["git", "pull"], cwd=git_repo)
-        run_command(["git", "push", "github", self.slug], cwd=git_repo)
+        retry_on_dns_failure(lambda: run_command(["git", "pull"], cwd=git_repo))
+        retry_on_dns_failure(lambda: run_command(
+            ["git", "push", "github", self.slug], cwd=git_repo))
 
     @property
     def travis_state(self):
