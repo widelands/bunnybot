@@ -75,7 +75,8 @@ def build_greeting(branch):
         % (branch.name, branch.slug),
         "",
         "You can give me commands by starting a line with @bunnybot <command>. I understand: ",
-        " merge: Merges the source branch into the target branch, closing the merge proposal."
+        " merge: Merges the source branch into the target branch, closing the "
+        "merge proposal. I will use the proposed commit message if it is set."
     ]
     return "\n".join(lines)
 
@@ -147,9 +148,14 @@ class Branch(object):
         run_command(
             ["bzr", "merge", os.path.relpath(source_path, self._path)],
             cwd=self._path)
-        run_command(
-            ["bzr", "commit", "-m", "Merged lp:%s" % source.name],
-            cwd=self._path)
+
+        commit_message = "Merged lp:%s" % source.name
+        if self._lp_object.commit_message is not None:
+            commit_message += ":\n"
+            commit_message += self._lp_object.commit_message
+        else:
+            commit_message += "."
+        run_command(["bzr", "commit", "-m", commit_message], cwd=self._path)
         self.push()
 
     def update_git(self, git_repo):
