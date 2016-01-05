@@ -143,19 +143,19 @@ class Branch(object):
         repo."""
         return os.path.isdir(self._path)
 
-    def merge_source(self, source):
+    def merge_source(self, source, commit_message):
         source_path = source._path
         run_command(
             ["bzr", "merge", os.path.relpath(source_path, self._path)],
             cwd=self._path)
 
-        commit_message = "Merged lp:%s" % source.name
-        if self._lp_object.commit_message is not None:
-            commit_message += ":\n"
-            commit_message += self._lp_object.commit_message
+        full_commit_message = "Merged lp:%s" % source.name
+        if commit_message is not None:
+            full_commit_message += ":\n"
+            full_commit_message += commit_message
         else:
-            commit_message += "."
-        run_command(["bzr", "commit", "-m", commit_message], cwd=self._path)
+            full_commit_message += "."
+        run_command(["bzr", "commit", "-m", full_commit_message], cwd=self._path)
         self.push()
 
     def update_git(self, git_repo):
@@ -280,7 +280,7 @@ class MergeProposal(object):
     def _merge(self):
         self.source_branch.update()
         self.target_branch.update()
-        self.target_branch.merge_source(self.source_branch)
+        self.target_branch.merge_source(self.source_branch, self._lp_object.commit_message)
 
     def serialize(self):
         d = {}
