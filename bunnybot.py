@@ -110,6 +110,8 @@ class Branch(object):
         self._revon = self._get_revno()
 
     def pull(self):
+        # Clear out any unwanted old state.
+        run_command(["bzr", "revert"], cwd=self._path)
         retry_on_dns_failure(
                 lambda: run_command(["bzr", "pull"], cwd=self._path))
         self._revon = self._get_revno()
