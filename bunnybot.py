@@ -106,7 +106,7 @@ class Branch(object):
         return re.sub(r"[^A-Za-z0-9]", "_", self._name)
 
     def branch(self):
-        run_command(["bzr", "branch", "lp:%s %s" % (self.name, self._path)])
+        run_command(["bzr", "branch", "lp:%s" % self.name, self._path])
         self._revon = self._get_revno()
 
     def pull(self):
