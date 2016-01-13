@@ -414,6 +414,7 @@ def delete_unmentioned_branches(branches, bzr_repo, git_repo):
 
 
 def main():
+    os.nice(10)  # Run at a really low priority.
     config = read_config()
 
     old_state = load_state(config["state_file"])
