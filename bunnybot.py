@@ -220,7 +220,7 @@ class Branch(object):
             data = urllib2.urlopen(url).read()
             d = json.loads(data)
             branch = d.get("build", None)
-            self._travis_state = {
+            self._appveyor_state = {
                 "state": branch["status"],
                 "number": branch["buildNumber"],
                 "id": branch["version"],
