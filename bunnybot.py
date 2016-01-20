@@ -12,6 +12,7 @@ import subprocess
 import time
 import urllib2
 
+BZR_REPO_NAME="bzr_origin"
 GREETING_LINE = "Hi, I am bunnybot (https://github.com/widelands/bunnybot)."
 
 
@@ -107,34 +108,31 @@ class Branch(object):
 
     def branch(self):
         run_command(["bzr", "branch", "lp:%s" % self.name, self._path])
-        self._revon = self._get_revno()
 
     def pull(self):
+        now = self.revno()
         # Clear out any unwanted old state.
         run_command(["bzr", "revert"], cwd=self._path)
         retry_on_dns_failure(
                 lambda: run_command(["bzr", "pull"], cwd=self._path))
-        self._revon = self._get_revno()
+        return now != self.revno()
 
     def update(self):
-        """Pulls or branches the branch if it does not yet exist."""
+        """Pulls or branches the branch if it does not yet exist. Returns True if something was updated."""
         if self.is_branched():
             return self.pull()
-        return self.branch()
+        self.branch()
+        return True
 
     def push(self):
         retry_on_dns_failure(
                 lambda: run_command(["bzr", "push", ":parent"], cwd=self._path))
 
-    def _get_revno(self):
-        return int(run_command(["bzr", "revno"], cwd=self._path, verbose=False))
 
-    @property
     def revno(self):
-        assert self.is_branched()
-        if self._revno is None:
-            self._revno = self._get_revno()
-        return self._revno
+        if not self.is_branched:
+            return 0
+        return int(run_command(["bzr", "revno"], cwd=self._path, verbose=False))
 
     @property
     def _path(self):
@@ -163,20 +161,16 @@ class Branch(object):
     def update_git(self, git_repo):
         """Creates or updates a branch in git branch named 'slug' that track
         the bzr branch in the bzr_repo."""
-        if self.slug not in git_remotes(git_repo):
-            run_command(
-                ["git", "remote", "add", self.slug,
-                 "bzr::" + os.path.relpath(self._path, git_repo)],
-                cwd=git_repo)
-        run_command(["git", "fetch", self.slug], cwd=git_repo)
+        run_command(["git", "config", "remote-bzr.branches", self.slug])
+        run_command(["git", "fetch", BZR_REPO_NAME], cwd=git_repo)
         if self.slug not in git_branches(git_repo):
             run_command(
-                ["git", "branch", "--track", self.slug, "%s/master" % self.slug],
+                ["git", "branch", "--track", self.slug, "%s/%s" % (BZR_REPO_NAME, self.slug)],
                 cwd=git_repo)
         git_checkout_branch(git_repo, self.slug)
         retry_on_dns_failure(lambda: run_command(["git", "pull"], cwd=git_repo))
         retry_on_dns_failure(lambda: run_command(
-            ["git", "push", "github", self.slug], cwd=git_repo))
+            ["git", "push", "github", self.slug, "--force"], cwd=git_repo))
 
     @property
     def travis_state(self):
@@ -209,12 +203,6 @@ class Branch(object):
         return state
 
 
-def git_remotes(git_repo):
-    return set(line.strip() for line in run_command(
-        ["git", "remote"],
-        cwd=git_repo, verbose=False).splitlines())
-
-
 def git_branches(git_repo):
     lines = run_command(
         ["git", "branch"],
@@ -225,13 +213,6 @@ def git_branches(git_repo):
             line = line[2:]
         branches.add(line.strip())
     return branches
-
-
-def git_delete_remote(git_repo, branch_name):
-    run_command(
-        ["git", "remote", "remove", branch_name],
-        cwd=git_repo)
-
 
 def git_delete_remote_branch(git_repo, branch_name):
     run_command(
@@ -280,7 +261,6 @@ class MergeProposal(object):
         self._lp_object = lp_object
 
     def _merge(self):
-        self.source_branch.update()
         self.target_branch.update()
         self.target_branch.merge_source(self.source_branch, self._lp_object.commit_message)
 
@@ -300,14 +280,15 @@ class MergeProposal(object):
         return self._comments
 
     def handle(self, old_state, git_repo):
-        self.source_branch.update()
+        was_updated = self.source_branch.update()
 
         old_travis_state = old_state['branches'].get(
             self.source_branch.name, {}).get(
                 "travis_state", {}).get("state", None)
 
         self.source_branch.update_travis_state(old_travis_state)
-        self.source_branch.update_git(git_repo)
+        if was_updated:
+            self.source_branch.update_git(git_repo)
 
         # Post the greeting if it was not yet posted.
         found_greeting = False
@@ -374,15 +355,15 @@ def git_checkout_branch(git_repo, branch_name):
 
 def update_git_master(trunk_name, bzr_repo, git_repo):
     trunk = Branch(trunk_name, bzr_repo)
-    trunk.update()
-    trunk.update_git(git_repo)
+    if trunk.update():
+        trunk.update_git(git_repo)
 
     # Merge trunk into master and push to github.
     git_checkout_branch(git_repo, "master")
     run_command(
         ["git", "merge", "--ff-only", trunk.slug],
         cwd=git_repo)
-    run_command(["git", "push", "github", "master"], cwd=git_repo)
+    run_command(["git", "push", "github", "master", "--force"], cwd=git_repo)
 
 
 def delete_unmentioned_branches(branches, bzr_repo, git_repo):
@@ -394,11 +375,6 @@ def delete_unmentioned_branches(branches, bzr_repo, git_repo):
     for slug in (checked_out_bzr_branches - branches_slugs):
         print "Deleting %s which is not mentioned anymore." % slug
         # Ignore errors - most likely some branches where not really there.
-        try:
-            git_delete_remote(git_repo, slug)
-        except ProcessFailed as error:
-            print(error)
-
         try:
             git_delete_remote_branch(git_repo, slug)
         except ProcessFailed as error:
@@ -421,6 +397,10 @@ def main():
 
     if not os.path.isdir(config["bzr_repo"]):
         run_command(["bzr", "init-repo", config["bzr_repo"]])
+        run_command(
+            ["git", "remote", "add", BZR_REPO_NAME,
+            "bzr::file://" + os.path.abspath(config["bzr_repo"])],
+            cwd=config["git_repo"])
     lp = Launchpad.login_with("wideland's bunnybot",
                               "production",
                               credentials_file=config["launchpad_credentials"])
