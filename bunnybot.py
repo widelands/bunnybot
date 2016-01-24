@@ -82,17 +82,19 @@ def build_greeting(branch):
     return "\n".join(lines)
 
 
-def build_travis_update(branch):
-    return "Travis build %s has changed state to: %s. Details: %s." % (
-        branch.travis_state['number'], branch.travis_state['state'],
-        'https://travis-ci.org/widelands/widelands/builds/%s' %
-        branch.travis_state['id'])
-
-def build_appveyor_update(branch):
-    return "Appveyor build %s has changed state to: %s. Details: %s." % (
-        branch.appveyor_state['number'], branch.appveyor['state'],
-        'https://ci.appveyor.com/project/widelands-dev/widelands/build/%s' %
-        branch.appveyor_state['id'])
+def build_ci_update(branch):
+    lines = [
+        "Continuous integration builds have changed state:",
+        "",
+        "Travis build %s. State: %s. Details: %s." % (
+            branch.travis_state['number'], branch.travis_state['state'],
+            'https://travis-ci.org/widelands/widelands/builds/%s' % branch.travis_state['id']),
+        "Appveyor build %s. State: %s. Details: %s." % (
+            branch.appveyor_state['number'], branch.appveyor_state['state'],
+            'https://ci.appveyor.com/project/widelands-dev/widelands/build/%s' %
+            branch.appveyor_state['id']),
+    ]
+    return "\n".join(lines)
 
 
 class Branch(object):
@@ -102,8 +104,8 @@ class Branch(object):
         self._name = name
         self._bzr_repo = bzr_repo
         self._revno = None
-        self._travis_state = {}
         self._appveyor_state = {}
+        self._travis_state = {}
 
     @property
     def name(self):
@@ -318,8 +320,13 @@ class MergeProposal(object):
         old_travis_state = old_state['branches'].get(
             self.source_branch.name, {}).get(
                 "travis_state", {}).get("state", None)
-
         self.source_branch.update_travis_state(old_travis_state)
+
+        old_appveyor_state = old_state['branches'].get(
+            self.source_branch.name, {}).get(
+                "appveyor_state", {}).get("state", None)
+        self.source_branch.update_appveyor_state(old_appveyor_state)
+
         if was_updated:
             self.source_branch.update_git(git_repo)
 
@@ -330,19 +337,17 @@ class MergeProposal(object):
                 found_greeting = True
                 break
         if not found_greeting:
-            self._lp_object.createComment(
-                subject="Bunnybot says...",
-                content=build_greeting(self.source_branch))
+            self.create_comment(build_greeting(self.source_branch))
 
         # Check for changes to the travis state, given we know anything about
         # the travis state.
         current_travis_state = self.source_branch.travis_state.get(
                 "state", None)
-        if current_travis_state is not None:
-            if old_travis_state != current_travis_state:
-                self._lp_object.createComment(
-                    subject="Bunnybot says...",
-                    content=build_travis_update(self.source_branch))
+        current_appveyor_state = self.source_branch.appveyor_state.get(
+                "state", None)
+        if current_travis_state is not None and current_appveyor_state is not None:
+            if old_travis_state != current_travis_state or old_appveyor_state != current_appveyor_state:
+                self.create_comment(build_ci_update(self.source_branch))
 
         for c in self.new_comments(old_state):
             if re.search("^@bunnybot.*merge", c, re.MULTILINE) is not None:
@@ -354,10 +359,18 @@ class MergeProposal(object):
             "",
             str(exception),
         ]
-        self._lp_object.createComment(
-                subject="Bunnybot says...",
-                content="\n".join(lines))
+        self.create_comment("\n".join(lines))
 
+    def create_comment(self, content):
+        # TODO(sirver): This subject is what Launchpad currently uses for sending out their email. We want
+        # to use the same, so that threads are not broken in email clients, but Launchpad offers no API.
+        subject = "[Merge] %s into %s" % (
+                self._lp_object.source_branch.bzr_identity,
+                self._lp_object.target_branch.bzr_identity,
+        )
+        self._lp_object.createComment(
+                subject=subject,
+                content=content)
 
 def dump_state(json_file, merge_proposals, branches):
     state = {}
