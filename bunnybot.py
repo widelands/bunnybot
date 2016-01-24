@@ -88,6 +88,12 @@ def build_travis_update(branch):
         'https://travis-ci.org/widelands/widelands/builds/%s' %
         branch.travis_state['id'])
 
+def build_appveyor_update(branch):
+    return "Appveyor build %s has changed state to: %s. Details: %s." % (
+        branch.appveyor_state['number'], branch.appveyor['state'],
+        'https://ci.appveyor.com/project/widelands-dev/widelands/build/%s' %
+        branch.appveyor_state['id'])
+
 
 class Branch(object):
     def __init__(self, name, bzr_repo):
@@ -97,6 +103,7 @@ class Branch(object):
         self._bzr_repo = bzr_repo
         self._revno = None
         self._travis_state = {}
+        self._appveyor_state = {}
 
     @property
     def name(self):
@@ -176,6 +183,10 @@ class Branch(object):
     def travis_state(self):
         return self._travis_state
 
+    @property
+    def appveyor_state(self):
+        return self._appveyor_state
+
     def update_travis_state(self, old_travis_state):
         """Checks if there is a travis state available for this branch."""
         url = "https://api.travis-ci.org/repos/widelands/widelands/branches/%s" % self.slug
@@ -196,10 +207,32 @@ class Branch(object):
             if error.code != 404:
                 raise error
 
+    def update_appveyor_state(self, old_appveyor_state):
+        """Checks if there is a appveyor state available for this branch."""
+        url = "https://ci.appveyor.com/api/projects/widelands-dev/widelands/branch/%s" % self.slug
+        try:
+            data = urllib2.urlopen(url).read()
+            d = json.loads(data)
+            branch = d.get("build", None)
+            self._appveyor_state = {
+                "state": branch["status"],
+                "number": branch["buildNumber"],
+                "id": branch["version"],
+            }
+
+            # No reason to report transient states
+            if self._appveyor_state["state"] not in ("success", "failed", "errored", "canceled"):
+                self._appveyor_state["state"] = old_appveyor_state
+        except urllib2.HTTPError as error:
+            if error.code != 404:
+                raise error
+
     def serialize(self):
         state = {}
         if self._travis_state:
             state['travis_state'] = {"state": self._travis_state['state']}
+        if self._appveyor_state:
+            state['appveyor_state'] = {"state": self._appveyor_state['state']}
         return state
 
 
