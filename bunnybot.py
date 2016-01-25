@@ -36,13 +36,23 @@ def retry_on_dns_failure(function):
     """
     while True:
         try:
-            function()
+            return function()
             break
         except ProcessFailed as e:
             if "Name or service not known" not in e.stdout:
                 raise
+            print "Error: %r" % (e)
             time.sleep(5)
 
+
+def read_url(url):
+    try:
+        return urllib2.urlopen(url).read()
+    except urllib2.HTTPError as error:
+        print "#sirver error: %r" % (error)
+        print "#sirver error.code: %r" % (error.code)
+        if error.code != 404:
+            raise error
 
 def run_command(command, cwd=None, verbose=True):
     if verbose:
@@ -192,42 +202,38 @@ class Branch(object):
     def update_travis_state(self, old_travis_state):
         """Checks if there is a travis state available for this branch."""
         url = "https://api.travis-ci.org/repos/widelands/widelands/branches/%s" % self.slug
-        try:
-            data = urllib2.urlopen(url).read()
-            d = json.loads(data)
-            branch = d.get("branch", None)
-            self._travis_state = {
-                "state": branch["state"],
-                "number": branch["number"],
-                "id": branch["id"],
-            }
+        data = read_url(url)
+        if data is None:
+            return
+        d = json.loads(data)
+        branch = d.get("branch", None)
+        self._travis_state = {
+            "state": branch["state"],
+            "number": branch["number"],
+            "id": branch["id"],
+        }
 
-            # No reason to report transient states
-            if self._travis_state["state"] not in ("passed", "failed", "errored", "canceled"):
-                self._travis_state["state"] = old_travis_state
-        except urllib2.HTTPError as error:
-            if error.code != 404:
-                raise error
+        # No reason to report transient states
+        if self._travis_state["state"] not in ("passed", "failed", "errored", "canceled"):
+            self._travis_state["state"] = old_travis_state
 
     def update_appveyor_state(self, old_appveyor_state):
         """Checks if there is a appveyor state available for this branch."""
         url = "https://ci.appveyor.com/api/projects/widelands-dev/widelands/branch/%s" % self.slug
-        try:
-            data = urllib2.urlopen(url).read()
-            d = json.loads(data)
-            branch = d.get("build", None)
-            self._appveyor_state = {
-                "state": branch["status"],
-                "number": branch["buildNumber"],
-                "id": branch["version"],
-            }
+        data = read_url(url)
+        if data is None:
+            return
+        d = json.loads(data)
+        branch = d.get("build", None)
+        self._appveyor_state = {
+            "state": branch["status"],
+            "number": branch["buildNumber"],
+            "id": branch["version"],
+        }
 
-            # No reason to report transient states
-            if self._appveyor_state["state"] not in ("success", "failed", "errored", "canceled"):
-                self._appveyor_state["state"] = old_appveyor_state
-        except urllib2.HTTPError as error:
-            if error.code != 404:
-                raise error
+        # No reason to report transient states
+        if self._appveyor_state["state"] not in ("success", "failed", "errored", "canceled"):
+            self._appveyor_state["state"] = old_appveyor_state
 
     def serialize(self):
         state = {}
@@ -276,7 +282,7 @@ def get_merge_proposals(project, bzr_repo):
     return [MergeProposal(m, branches) for m in merge_proposals], branches
 
 
-def read_config():
+def parse_args():
     p = argparse.ArgumentParser(
         description="Mergebot for the Widelands project")
 
@@ -284,8 +290,11 @@ def read_config():
                    type=str,
                    default="data/config.json",
                    help="The configuration file for the bot.")
-    args = p.parse_args()
-    return json.load(open(args.config, "r"))
+    p.add_argument("--always-update",
+                    action="store_true",
+                   default=False,
+                   help="Update git branches, even if it seems bzr has not changed.")
+    return p.parse_args()
 
 
 class MergeProposal(object):
@@ -314,7 +323,7 @@ class MergeProposal(object):
                 return self._comments[proposal['num_comments']:]
         return self._comments
 
-    def handle(self, old_state, git_repo):
+    def handle(self, old_state, git_repo, always_update):
         was_updated = self.source_branch.update()
 
         old_travis_state = old_state['branches'].get(
@@ -327,7 +336,7 @@ class MergeProposal(object):
                 "appveyor_state", {}).get("state", None)
         self.source_branch.update_appveyor_state(old_appveyor_state)
 
-        if was_updated:
+        if always_update or was_updated:
             self.source_branch.update_git(git_repo)
 
         # Post the greeting if it was not yet posted.
@@ -437,7 +446,8 @@ def delete_unmentioned_branches(branches, bzr_repo, git_repo):
 
 def main():
     os.nice(10)  # Run at a really low priority.
-    config = read_config()
+    args = parse_args()
+    config = json.load(open(args.config, "r"))
 
     old_state = load_state(config["state_file"])
 
@@ -458,7 +468,7 @@ def main():
                 merge_proposal.source_branch.name,
                 merge_proposal.target_branch.name)
         try:
-            merge_proposal.handle(old_state, config["git_repo"])
+            merge_proposal.handle(old_state, config["git_repo"], args.always_update)
         except Exception as e:
             merge_proposal.report_exception(e)
         print "\n\n"
