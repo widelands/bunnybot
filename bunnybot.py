@@ -410,8 +410,8 @@ def git_checkout_branch(git_repo, branch_name):
 
 def update_git_master(trunk_name, bzr_repo, git_repo):
     trunk = Branch(trunk_name, bzr_repo)
-    if trunk.update():
-        trunk.update_git(git_repo)
+    trunk.update():
+    trunk.update_git(git_repo)
 
     # Merge trunk into master and push to github.
     git_checkout_branch(git_repo, "master")
