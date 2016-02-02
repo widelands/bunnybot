@@ -122,7 +122,7 @@ class Branch(object):
         # Clear out any unwanted old state.
         run_command(["bzr", "revert"], cwd=self._path)
         retry_on_dns_failure(
-                lambda: run_command(["bzr", "pull"], cwd=self._path))
+                lambda: run_command(["bzr", "pull", "--overwrite"], cwd=self._path))
         return now != self.revno()
 
     def update(self):
@@ -134,7 +134,7 @@ class Branch(object):
 
     def push(self):
         retry_on_dns_failure(
-                lambda: run_command(["bzr", "push", ":parent"], cwd=self._path))
+                lambda: run_command(["bzr", "push", ":parent", "--overwrite"], cwd=self._path))
 
     def revno(self):
         if not self.is_branched:
