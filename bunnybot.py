@@ -12,9 +12,7 @@ import subprocess
 import time
 import urllib2
 
-BZR_REPO_NAME="bzr_origin"
-GREETING_LINE = "Hi, I am bunnybot (https://github.com/widelands/bunnybot)."
-
+BZR_REPO_NAME = "bzr_origin"
 
 class ProcessFailed(Exception):
     """subprocess.CalledProcessError does not satisfy our needs, so we roll our
@@ -26,7 +24,7 @@ class ProcessFailed(Exception):
 
     def __str__(self):
         return "Running '%s' failed. Output:\n\n%s" % (
-                self.command, self.stdout)
+            self.command, self.stdout)
 
 
 def retry_on_dns_failure(function):
@@ -46,25 +44,29 @@ def retry_on_dns_failure(function):
 
 
 def read_url(url):
-    try:
-        return urllib2.urlopen(url).read()
-    except urllib2.HTTPError as error:
-        print "#sirver error: %r" % (error)
-        print "#sirver error.code: %r" % (error.code)
-        if error.code != 404:
-            raise error
+    while True:
+        try:
+            return urllib2.urlopen(url).read()
+        except urllib2.URLError as error:
+            if getattr(error, "code", 0) == 404:
+                return
+            if getattr(error.reason, "errno", 0) == -2:
+                print "Transient error for %s: %s." % (url, error)
+                time.sleep(5)
+            else:
+                raise error
+
 
 def run_command(command, cwd=None, verbose=True):
     if verbose:
         print("-> %s%s" % (
             " ".join(command), "" if cwd is None else " [%s]" % cwd))
     process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            stdin=None,
-            stderr=subprocess.STDOUT,
-            stdout=subprocess.PIPE,
-            )
+        command,
+        cwd=cwd,
+        stdin=None,
+        stderr=subprocess.STDOUT,
+        stdout=subprocess.PIPE, )
 
     out, err = process.communicate()
     assert err is None
@@ -78,31 +80,18 @@ def run_command(command, cwd=None, verbose=True):
     return out
 
 
-def build_greeting(branch):
-    lines = [
-        GREETING_LINE,
-        "",
-        "I am keeping the source branch lp:%s mirrored to https://github.com/widelands/widelands/tree/%s"
-        % (branch.name, branch.slug),
-        "",
-        "You can give me commands by starting a line with @bunnybot <command>. I understand: ",
-        " merge: Merges the source branch into the target branch, closing the "
-        "merge proposal. I will use the proposed commit message if it is set."
-    ]
-    return "\n".join(lines)
-
-
 def build_ci_update(branch):
     lines = [
         "Continuous integration builds have changed state:",
         "",
         "Travis build %s. State: %s. Details: %s." % (
             branch.travis_state['number'], branch.travis_state['state'],
-            'https://travis-ci.org/widelands/widelands/builds/%s' % branch.travis_state['id']),
+            'https://travis-ci.org/widelands/widelands/builds/%s' %
+            branch.travis_state['id']),
         "Appveyor build %s. State: %s. Details: %s." % (
             branch.appveyor_state['number'], branch.appveyor_state['state'],
-            'https://ci.appveyor.com/project/widelands-dev/widelands/build/%s' %
-            branch.appveyor_state['id']),
+            'https://ci.appveyor.com/project/widelands-dev/widelands/build/%s'
+            % branch.appveyor_state['id']),
     ]
     return "\n".join(lines)
 
@@ -147,11 +136,12 @@ class Branch(object):
         retry_on_dns_failure(
                 lambda: run_command(["bzr", "push", ":parent"], cwd=self._path))
 
-
     def revno(self):
         if not self.is_branched:
             return 0
-        return int(run_command(["bzr", "revno"], cwd=self._path, verbose=False))
+        return int(run_command(["bzr", "revno"],
+                               cwd=self._path,
+                               verbose=False))
 
     @property
     def _path(self):
@@ -174,7 +164,8 @@ class Branch(object):
             full_commit_message += commit_message
         else:
             full_commit_message += "."
-        run_command(["bzr", "commit", "-m", full_commit_message], cwd=self._path)
+        run_command(["bzr", "commit", "-m", full_commit_message],
+                    cwd=self._path)
         self.push()
 
     def update_git(self, git_repo):
@@ -184,7 +175,8 @@ class Branch(object):
         run_command(["git", "fetch", BZR_REPO_NAME], cwd=git_repo)
         if self.slug not in git_branches(git_repo):
             run_command(
-                ["git", "branch", "--track", self.slug, "%s/%s" % (BZR_REPO_NAME, self.slug)],
+                ["git", "branch", "--track", self.slug,
+                 "%s/%s" % (BZR_REPO_NAME, self.slug)],
                 cwd=git_repo)
         git_checkout_branch(git_repo, self.slug)
         retry_on_dns_failure(lambda: run_command(["git", "pull"], cwd=git_repo))
@@ -214,7 +206,8 @@ class Branch(object):
         }
 
         # No reason to report transient states
-        if self._travis_state["state"] not in ("passed", "failed", "errored", "canceled"):
+        if self._travis_state["state"] not in ("passed", "failed", "errored",
+                                               "canceled"):
             self._travis_state["state"] = old_travis_state
 
     def update_appveyor_state(self, old_appveyor_state):
@@ -232,7 +225,8 @@ class Branch(object):
         }
 
         # No reason to report transient states
-        if self._appveyor_state["state"] not in ("success", "failed", "errored", "canceled"):
+        if self._appveyor_state["state"] not in ("success", "failed",
+                                                 "errored", "canceled"):
             self._appveyor_state["state"] = old_appveyor_state
 
     def serialize(self):
@@ -247,7 +241,8 @@ class Branch(object):
 def git_branches(git_repo):
     lines = run_command(
         ["git", "branch"],
-        cwd=git_repo, verbose=False).splitlines()
+        cwd=git_repo,
+        verbose=False).splitlines()
     branches = set()
     for line in lines:
         if line.startswith("*"):
@@ -255,10 +250,9 @@ def git_branches(git_repo):
         branches.add(line.strip())
     return branches
 
+
 def git_delete_remote_branch(git_repo, branch_name):
-    run_command(
-        ["git", "push", "github", ":" + branch_name],
-        cwd=git_repo)
+    run_command(["git", "push", "github", ":" + branch_name], cwd=git_repo)
 
 
 def git_delete_local_branch(git_repo, branch_name):
@@ -266,9 +260,7 @@ def git_delete_local_branch(git_repo, branch_name):
         raise RuntimeError("Cannot delete master branch.")
 
     git_checkout_branch(git_repo, "master")
-    run_command(
-        ["git", "branch", "-D", branch_name],
-        cwd=git_repo)
+    run_command(["git", "branch", "-D", branch_name], cwd=git_repo)
 
 
 def get_merge_proposals(project, bzr_repo):
@@ -290,10 +282,11 @@ def parse_args():
                    type=str,
                    default="data/config.json",
                    help="The configuration file for the bot.")
-    p.add_argument("--always-update",
-                    action="store_true",
-                   default=False,
-                   help="Update git branches, even if it seems bzr has not changed.")
+    p.add_argument(
+        "--always-update",
+        action="store_true",
+        default=False,
+        help="Update git branches, even if it seems bzr has not changed.")
     return p.parse_args()
 
 
@@ -306,7 +299,8 @@ class MergeProposal(object):
 
     def _merge(self):
         self.target_branch.update()
-        self.target_branch.merge_source(self.source_branch, self._lp_object.commit_message)
+        self.target_branch.merge_source(self.source_branch,
+                                        self._lp_object.commit_message)
 
     def serialize(self):
         d = {}
@@ -339,21 +333,12 @@ class MergeProposal(object):
         if always_update or was_updated:
             self.source_branch.update_git(git_repo)
 
-        # Post the greeting if it was not yet posted.
-        found_greeting = False
-        for c in self._comments:
-            if GREETING_LINE in c:
-                found_greeting = True
-                break
-        if not found_greeting:
-            self.create_comment(build_greeting(self.source_branch))
-
         # Check for changes to the travis state, given we know anything about
         # the travis state.
         current_travis_state = self.source_branch.travis_state.get(
-                "state", None)
+            "state", None)
         current_appveyor_state = self.source_branch.appveyor_state.get(
-                "state", None)
+            "state", None)
         if current_travis_state is not None and current_appveyor_state is not None:
             if old_travis_state != current_travis_state or old_appveyor_state != current_appveyor_state:
                 self.create_comment(build_ci_update(self.source_branch))
@@ -374,12 +359,10 @@ class MergeProposal(object):
         # TODO(sirver): This subject is what Launchpad currently uses for sending out their email. We want
         # to use the same, so that threads are not broken in email clients, but Launchpad offers no API.
         subject = "[Merge] %s into %s" % (
-                self._lp_object.source_branch.bzr_identity,
-                self._lp_object.target_branch.bzr_identity,
-        )
-        self._lp_object.createComment(
-                subject=subject,
-                content=content)
+            self._lp_object.source_branch.bzr_identity,
+            self._lp_object.target_branch.bzr_identity, )
+        self._lp_object.createComment(subject=subject, content=content)
+
 
 def dump_state(json_file, merge_proposals, branches):
     state = {}
@@ -415,17 +398,15 @@ def update_git_master(trunk_name, bzr_repo, git_repo):
 
     # Merge trunk into master and push to github.
     git_checkout_branch(git_repo, "master")
-    run_command(
-        ["git", "merge", "--ff-only", trunk.slug],
-        cwd=git_repo)
+    run_command(["git", "merge", "--ff-only", trunk.slug], cwd=git_repo)
     run_command(["git", "push", "github", "master", "--force"], cwd=git_repo)
 
 
 def delete_unmentioned_branches(branches, bzr_repo, git_repo):
     branches_slugs = set(b.slug for b in branches.values())
     checked_out_bzr_branches = set(
-            os.path.basename(d) for d in glob(os.path.join(bzr_repo, "*")) if
-            os.path.isdir(d))
+        os.path.basename(d) for d in glob(os.path.join(bzr_repo, "*"))
+        if os.path.isdir(d))
 
     for slug in (checked_out_bzr_branches - branches_slugs):
         print "Deleting %s which is not mentioned anymore." % slug
@@ -455,20 +436,21 @@ def main():
         run_command(["bzr", "init-repo", config["bzr_repo"]])
         run_command(
             ["git", "remote", "add", BZR_REPO_NAME,
-            "bzr::file://" + os.path.abspath(config["bzr_repo"])],
+             "bzr::file://" + os.path.abspath(config["bzr_repo"])],
             cwd=config["git_repo"])
     lp = Launchpad.login_with("wideland's bunnybot",
                               "production",
                               credentials_file=config["launchpad_credentials"])
     project = lp.projects["widelands"]
     merge_proposals, branches = get_merge_proposals(
-            project, config["bzr_repo"])
+        project, config["bzr_repo"])
     for merge_proposal in merge_proposals:
         print "===> Working on %s -> %s" % (
-                merge_proposal.source_branch.name,
-                merge_proposal.target_branch.name)
+            merge_proposal.source_branch.name,
+            merge_proposal.target_branch.name)
         try:
-            merge_proposal.handle(old_state, config["git_repo"], args.always_update)
+            merge_proposal.handle(old_state, config["git_repo"],
+                                  args.always_update)
         except Exception as e:
             merge_proposal.report_exception(e)
         print "\n\n"
@@ -478,7 +460,7 @@ def main():
     update_git_master(config["master_mirrors"], config["bzr_repo"],
                       config["git_repo"])
     delete_unmentioned_branches(
-            branches, config["bzr_repo"], config["git_repo"])
+        branches, config["bzr_repo"], config["git_repo"])
     return 0
 
 
