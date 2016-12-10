@@ -9,10 +9,14 @@ import os
 import pid
 import re
 import subprocess
+import sys
 import time
 import urllib2
 
 BZR_REPO_NAME = "bzr_origin"
+
+def to_stdout(string):
+    print(string.encode("ascii", "replace"))
 
 class ProcessFailed(Exception):
     """subprocess.CalledProcessError does not satisfy our needs, so we roll our
@@ -22,7 +26,7 @@ class ProcessFailed(Exception):
         self.command = command
         self.stdout = stdout
 
-    def __str__(self):
+    def __repr__(self):
         return "Running '%s' failed. Output:\n\n%s" % (
             self.command, self.stdout)
 
@@ -39,41 +43,41 @@ def retry_on_dns_failure(function):
         except ProcessFailed as e:
             if "Name or service not known" not in e.stdout:
                 raise
-            print "Error: %r" % (e)
+            to_stdout("Error: %r" % (e))
             time.sleep(5)
 
 
 def read_url(url):
     while True:
         try:
-            return urllib2.urlopen(url).read()
+            return urllib2.urlopen(url, timeout = 60.).read()
         except urllib2.URLError as error:
             if getattr(error, "code", 0) == 404:
                 return
             if getattr(error.reason, "errno", 0) == -2:
-                print "Transient error for %s: %s." % (url, error)
+                to_stdout("Transient error for %s: %s." % (url, error))
                 time.sleep(5)
             else:
-                raise error
+                raise
 
 
 def run_command(command, cwd=None, verbose=True):
     if verbose:
-        print("-> %s%s" % (
+        to_stdout("-> %s%s" % (
             " ".join(command), "" if cwd is None else " [%s]" % cwd))
     process = subprocess.Popen(
         command,
         cwd=cwd,
         stdin=None,
         stderr=subprocess.STDOUT,
-        stdout=subprocess.PIPE, )
+        stdout=subprocess.PIPE)
 
     out, err = process.communicate()
     assert err is None
 
     if verbose:
         for line in out.splitlines():
-            print "  %s" % line
+            to_stdout("  %s" % line)
 
     if process.returncode != 0:
         raise ProcessFailed(" ".join(command), out)
@@ -158,6 +162,8 @@ class Branch(object):
             ["bzr", "merge", os.path.relpath(source_path, self._path)],
             cwd=self._path)
 
+        self.fix_formatting()
+
         full_commit_message = "Merged lp:%s" % source.name
         if commit_message is not None:
             full_commit_message += ":\n"
@@ -193,8 +199,14 @@ class Branch(object):
 
     def update_travis_state(self, old_travis_state):
         """Checks if there is a travis state available for this branch."""
+        self._travis_state["state"] = old_travis_state
+
         url = "https://api.travis-ci.org/repos/widelands/widelands/branches/%s" % self.slug
-        data = read_url(url)
+        try:
+            data = read_url(url)
+        except Exception as e:
+            print "Error while fetching information from travis: %r" % (e)
+            return
         if data is None:
             return
         d = json.loads(data)
@@ -237,6 +249,13 @@ class Branch(object):
             state['appveyor_state'] = {"state": self._appveyor_state['state']}
         return state
 
+    def fix_formatting(self):
+        run_command(["utils/fix_formatting.py"], cwd=self._path)
+        try:
+            run_command(["bzr", "commit", "-m", "Fix formatting."], cwd=self._path)
+        except ProcessFailed as error:
+            if "No changes to commit." not in error.stdout:
+                to_stdout("Process failed: %r" % error)
 
 def git_branches(git_repo):
     lines = run_command(
@@ -320,32 +339,48 @@ class MergeProposal(object):
     def handle(self, old_state, git_repo, always_update):
         was_updated = self.source_branch.update()
 
+        sys.stdout.write("ALIVE 1!\n"); sys.stdout.flush()
         old_travis_state = old_state['branches'].get(
             self.source_branch.name, {}).get(
                 "travis_state", {}).get("state", None)
+        sys.stdout.write("ALIVE 2!\n"); sys.stdout.flush()
         self.source_branch.update_travis_state(old_travis_state)
+        sys.stdout.write("ALIVE 3!\n"); sys.stdout.flush()
 
+        sys.stdout.write("ALIVE 4!\n"); sys.stdout.flush()
         old_appveyor_state = old_state['branches'].get(
             self.source_branch.name, {}).get(
                 "appveyor_state", {}).get("state", None)
+        sys.stdout.write("ALIVE 5!\n"); sys.stdout.flush()
         self.source_branch.update_appveyor_state(old_appveyor_state)
+        sys.stdout.write("ALIVE 6!\n"); sys.stdout.flush()
 
+        sys.stdout.write("ALIVE 7!\n"); sys.stdout.flush()
         if always_update or was_updated:
+            sys.stdout.write("ALIVE! 8\n"); sys.stdout.flush()
             self.source_branch.update_git(git_repo)
+            sys.stdout.write("ALIVE! 9\n"); sys.stdout.flush()
+        sys.stdout.write("ALIVE! 10\n"); sys.stdout.flush()
 
         # Check for changes to the travis state, given we know anything about
         # the travis state.
+        sys.stdout.write("ALIVE! 11\n"); sys.stdout.flush()
         current_travis_state = self.source_branch.travis_state.get(
             "state", None)
+        sys.stdout.write("ALIVE! 12\n"); sys.stdout.flush()
         current_appveyor_state = self.source_branch.appveyor_state.get(
             "state", None)
+        sys.stdout.write("ALIVE! 13\n"); sys.stdout.flush()
         if current_travis_state is not None and current_appveyor_state is not None:
             if old_travis_state != current_travis_state or old_appveyor_state != current_appveyor_state:
                 self.create_comment(build_ci_update(self.source_branch))
+        sys.stdout.write("ALIVE! 14\n"); sys.stdout.flush()
 
+        sys.stdout.write("ALIVE! 15\n"); sys.stdout.flush()
         for c in self.new_comments(old_state):
             if re.search("^@bunnybot.*merge", c, re.MULTILINE) is not None:
                 self._merge()
+        sys.stdout.write("ALIVE! 16\n"); sys.stdout.flush()
 
     def report_exception(self, exception):
         lines = [
@@ -354,6 +389,7 @@ class MergeProposal(object):
             str(exception),
         ]
         self.create_comment("\n".join(lines))
+        print "Creating comment: %r" % (lines)
 
     def create_comment(self, content):
         # TODO(sirver): This subject is what Launchpad currently uses for sending out their email. We want
@@ -390,6 +426,11 @@ def load_state(json_file):
 def git_checkout_branch(git_repo, branch_name):
     run_command(["git", "checkout", branch_name], cwd=git_repo)
 
+def fix_trunk_formatting(trunk_name, bzr_repo):
+    trunk = Branch(trunk_name, bzr_repo)
+    trunk.update()
+    trunk.fix_formatting()
+    trunk.push()
 
 def update_git_master(trunk_name, bzr_repo, git_repo):
     trunk = Branch(trunk_name, bzr_repo)
@@ -401,25 +442,40 @@ def update_git_master(trunk_name, bzr_repo, git_repo):
     run_command(["git", "merge", "--ff-only", trunk.slug], cwd=git_repo)
     run_command(["git", "push", "github", "master", "--force"], cwd=git_repo)
 
+def update_build19(branch_name, bzr_repo, git_repo):
+    # TODO(sirver): this might make issues if a tag 'build19" also exists in
+    # master. Use a different branch name?
+    b19 = Branch(branch_name, bzr_repo)
+    b19.update()
+    b19.update_git(git_repo)
+
+    # Merge b19 into master and push to github.
+    git_checkout_branch(git_repo, "build19")
+    run_command(["git", "merge", "--ff-only", b19.slug], cwd=git_repo)
+    run_command(["git", "push", "github", "build19", "--force"], cwd=git_repo)
 
 def delete_unmentioned_branches(branches, bzr_repo, git_repo):
     branches_slugs = set(b.slug for b in branches.values())
+
+    # Keep the build 19 branch around.
+    branches_slugs.add("_widelands_dev_widelands_b19")
+
     checked_out_bzr_branches = set(
         os.path.basename(d) for d in glob(os.path.join(bzr_repo, "*"))
         if os.path.isdir(d))
 
     for slug in (checked_out_bzr_branches - branches_slugs):
-        print "Deleting %s which is not mentioned anymore." % slug
+        to_stdout("Deleting %s which is not mentioned anymore." % slug)
         # Ignore errors - most likely some branches where not really there.
         try:
             git_delete_remote_branch(git_repo, slug)
         except ProcessFailed as error:
-            print(error)
+            to_stdout("Process failed: %r" % error)
 
         try:
             git_delete_local_branch(git_repo, slug)
         except ProcessFailed as error:
-            print(error)
+            to_stdout("Process failed: %r" % error)
 
         # shutil.rmtree chokes on some of our filenames.
         run_command(["rm", "-rf", os.path.join(bzr_repo, slug)])
@@ -445,20 +501,23 @@ def main():
     merge_proposals, branches = get_merge_proposals(
         project, config["bzr_repo"])
     for merge_proposal in merge_proposals:
-        print "===> Working on %s -> %s" % (
+        to_stdout("===> Working on %s -> %s" % (
             merge_proposal.source_branch.name,
-            merge_proposal.target_branch.name)
+            merge_proposal.target_branch.name))
         try:
             merge_proposal.handle(old_state, config["git_repo"],
                                   args.always_update)
         except Exception as e:
             merge_proposal.report_exception(e)
-        print "\n\n"
+        to_stdout("\n\n")
 
     dump_state(config["state_file"], merge_proposals, branches)
 
+    fix_trunk_formatting(config["master_mirrors"], config["bzr_repo"])
     update_git_master(config["master_mirrors"], config["bzr_repo"],
                       config["git_repo"])
+    #  update_build19("~widelands-dev/widelands/b19", config["bzr_repo"],
+                      #  config["git_repo"])
     delete_unmentioned_branches(
         branches, config["bzr_repo"], config["git_repo"])
     return 0
@@ -469,5 +528,5 @@ if __name__ == '__main__':
         with pid.PidFile(piddir="."):
             main()
     except pid.PidFileAlreadyLockedError:
-        print "PID file exists. Cowardly refusing to work."
+        to_stdout("PID file exists. Cowardly refusing to work.")
         pass
