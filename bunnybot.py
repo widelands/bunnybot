@@ -177,7 +177,7 @@ class Branch(object):
     def update_git(self, git_repo):
         """Creates or updates a branch in git branch named 'slug' that track
         the bzr branch in the bzr_repo."""
-        run_command(["git", "config", "remote-bzr.branches", self.slug])
+        run_command(["git", "config", "remote-bzr.branches", self.slug], cwd=git_repo)
         run_command(["git", "fetch", BZR_REPO_NAME], cwd=git_repo)
         if self.slug not in git_branches(git_repo):
             run_command(
