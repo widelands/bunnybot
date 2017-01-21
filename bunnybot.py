@@ -250,7 +250,11 @@ class Branch(object):
         return state
 
     def fix_formatting(self):
-        run_command(["utils/fix_formatting.py"], cwd=self._path)
+        FORMATTING="utils/fix_formatting.py"
+        if os.path.exists(os.path.join(self._path, FORMATTING)):
+            to_stdout("Did not %s. Not trying to run it." % FORMATTING)
+            return
+        run_command([FORMATTING], cwd=self._path)
         try:
             run_command(["bzr", "commit", "-m", "Fix formatting."], cwd=self._path)
         except ProcessFailed as error:
