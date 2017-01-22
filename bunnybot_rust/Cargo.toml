@@ -6,3 +6,14 @@ version = "0.1.0"
 [dependencies]
 error-chain = "0.8.1"
 lazy_static = "0.2.2"
+reqwest = "0.3.0"
+serde = "0.8.6"
+serde_derive = "0.8.6"
+serde_json = "0.8.6"
+
+[target]
+
+[target."cfg(target_os=\"linux\")"]
+
+[target."cfg(target_os=\"linux\")".dependencies]
+scheduler = "0.1.3"
