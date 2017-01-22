@@ -8,6 +8,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
+extern crate regex;
 extern crate reqwest;
 
 pub mod errors;

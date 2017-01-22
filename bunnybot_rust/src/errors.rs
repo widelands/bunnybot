@@ -1,5 +1,3 @@
-use reqwest;
-
 error_chain! {
     errors {
         PidFileExists {
@@ -9,6 +7,10 @@ error_chain! {
         Http(url: String) {
             description("HTTP request failed.")
             display("HTTP request for {} failed", url)
+        }
+
+        ProcessFailed {
+            description("Process failed.")
         }
     }
 }
