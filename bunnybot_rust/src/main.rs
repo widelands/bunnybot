@@ -54,6 +54,7 @@ fn run() -> Result<()> {
                  m.source_branch.unique_name,
                  m.target_branch.unique_name);
 
+        // NOCOM(#sirver): this is the slowest part here.
         let state = m.source_branch.travis_state();
         println!("#sirver state: {:#?}", state);
 

@@ -6,10 +6,12 @@ use std::path::Path;
 use regex::Regex;
 use std::process;
 use std::io::Read;
+use chrono::{DateTime, UTC};
 
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
 const TRAVIS_ROOT: &'static str = "https://api.travis-ci.org/repos/widelands/widelands/branches";
-const APPVEYOR_ROOT: &'static str = "https://ci.appveyor.com/api/projects/widelands-dev/widelands/branch";
+const APPVEYOR_ROOT: &'static str = "https://ci.appveyor.\
+                                     com/api/projects/widelands-dev/widelands/branch";
 
 lazy_static! {
     static ref SLUG_REGEX: Regex = Regex::new(r"[^A-Za-z0-9]").unwrap();
@@ -24,6 +26,7 @@ struct JsonCollection<T> {
 #[derive(Deserialize, Debug)]
 pub struct JsonMergeProposal {
     self_link: String,
+    all_comments_collection_link: String,
     source_branch_link: String,
     target_branch_link: String,
     commit_message: Option<String>,
@@ -33,6 +36,12 @@ pub struct JsonMergeProposal {
 pub struct JsonBranch {
     self_link: String,
     unique_name: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Comment {
+    date_created: DateTime<UTC>,
+    message_body: String,
 }
 
 #[derive(Debug)]
@@ -74,8 +83,8 @@ struct JsonTravisBuild {
 
 #[derive(Debug,Deserialize)]
 pub struct JsonTravisBranch {
-    finished_at: String,
-    started_at: String,
+    finished_at: Option<DateTime<UTC>>,
+    started_at: DateTime<UTC>,
     state: String,
 }
 
@@ -86,8 +95,8 @@ struct JsonAppveyorBuild {
 
 #[derive(Debug,Deserialize)]
 pub struct JsonAppveyorBranch {
-    created: String,
-    finished: Option<String>,
+    created: DateTime<UTC>,
+    finished: Option<DateTime<UTC>>,
     status: String,
 }
 
@@ -238,19 +247,24 @@ pub struct MergeProposal {
     pub source_branch: Branch,
     pub target_branch: Branch,
     commit_message: Option<String>,
+    comments: Vec<Comment>,
 }
 
 impl MergeProposal {
-    pub fn from_json(json: JsonMergeProposal) -> Self {
-        MergeProposal {
+    pub fn from_json(json: JsonMergeProposal) -> Result<Self> {
+        let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?.entries;
+
+        let merge_proposal = MergeProposal {
             source_branch: Branch::from_lp_api_link(&json.source_branch_link),
             target_branch: Branch::from_lp_api_link(&json.target_branch_link),
             commit_message: json.commit_message,
-        }
+            comments: comments,
+        };
+        println!("#sirver merge_proposal: {:#?}", merge_proposal);
+        Ok(merge_proposal)
     }
 }
 
-// NOCOM(#sirver): this is still somewhat awkward... what to return when?
 fn get<D>(url: &str) -> Result<D>
     where D: serde::Deserialize
 {
@@ -269,11 +283,9 @@ pub fn get_merge_proposals(name: &str) -> Result<Vec<MergeProposal>> {
     let url = format!("{}{}?ws.op=getMergeProposals&status=Needs review",
                       LP_API,
                       name);
-    let entries = get::<JsonCollection<JsonMergeProposal>>(&url)
-        ?
-        .entries
-        .into_iter()
-        .map(MergeProposal::from_json)
-        .collect();
+    let mut entries = Vec::new();
+    for json_entry in get::<JsonCollection<JsonMergeProposal>>(&url)?.entries {
+        entries.push(MergeProposal::from_json(json_entry)?);
+    }
     Ok(entries)
 }
