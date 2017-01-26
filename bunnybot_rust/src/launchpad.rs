@@ -4,9 +4,10 @@ use serde_json;
 use serde;
 use std::path::Path;
 use regex::Regex;
-use std::process;
+use subprocess::{run_command, Verbose};
 use std::io::Read;
 use chrono::{DateTime, UTC};
+use git;
 
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
 const TRAVIS_ROOT: &'static str = "https://api.travis-ci.org/repos/widelands/widelands/branches";
@@ -64,18 +65,6 @@ pub struct Branch {
     pub slug: String,
 }
 
-#[derive(Debug)]
-struct Output {
-    stdout: String,
-    stderr: String,
-}
-
-#[derive(Debug,PartialEq)]
-enum Verbose {
-    Yes,
-    No,
-}
-
 #[derive(Debug,Deserialize)]
 struct JsonTravisBuild {
     branch: JsonTravisBranch,
@@ -85,7 +74,7 @@ struct JsonTravisBuild {
 pub struct JsonTravisBranch {
     finished_at: Option<DateTime<UTC>>,
     started_at: DateTime<UTC>,
-    state: String,
+    pub state: String,
 }
 
 #[derive(Debug,Deserialize)]
@@ -97,62 +86,18 @@ struct JsonAppveyorBuild {
 pub struct JsonAppveyorBranch {
     created: DateTime<UTC>,
     finished: Option<DateTime<UTC>>,
-    status: String,
+    pub status: String,
 }
 
-fn run_command(args: &[&str], cwd: &Path, verbose: Verbose) -> Result<Output> {
-    let command = args.join(" ");
-    if verbose == Verbose::Yes {
-        println!("-> {} [{}]", command, cwd.to_string_lossy());
-    }
-
-    let mut command = process::Command::new(args[0]);
-    command.args(&args[1..]);
-    command.current_dir(cwd);
-    // This should always run - or the binary was not found, which is indeed fatal.
-    let res = command.output().unwrap();
-    let output = Output {
-        stdout: String::from_utf8(res.stdout).unwrap_or_else(|_| "...garbage...".into()),
-        stderr: String::from_utf8(res.stderr).unwrap_or_else(|_| "...garbage...".into()),
-    };
-
-    if verbose == Verbose::Yes {
-        for line in output.stdout.lines() {
-            println!("    {}", line.trim_right());
-        }
-        for line in output.stderr.lines() {
-            println!("    {}", line.trim_right());
-        }
-    }
-
-    if !res.status.success() {
-        bail!(ErrorKind::ProcessFailed);
-    }
-    Ok(output)
-}
-
-fn git_branches(git_repo: &Path) -> Result<Vec<String>> {
-    let output = run_command(&["git", "branch"], git_repo, Verbose::No)?.stdout;
-    let mut branches = Vec::new();
-    for mut line in output.lines() {
-        if line.starts_with("*") {
-            line = &line[2..];
-        }
-        branches.push(line.trim().to_string());
-    }
-    Ok(branches)
-}
-
-fn git_checkout_branch(git_repo: &Path, branch: &str) -> Result<()> {
-    run_command(&["git", "checkout", branch], git_repo, Verbose::No)?;
-    Ok(())
+pub fn slugify(branch: &str) -> String {
+    SLUG_REGEX.replace_all(&branch, "_").to_string()
 }
 
 impl Branch {
     pub fn from_lp_api_link(url: &str) -> Self {
         assert!(url.starts_with(LP_API));
         let unique_name = url.split_at(LP_API.len()).1.to_string();
-        let slug = SLUG_REGEX.replace_all(&unique_name, "_").to_string();
+        let slug = slugify(&unique_name);
         Branch {
             unique_name: unique_name,
             slug: slug,
@@ -212,7 +157,7 @@ impl Branch {
                     Verbose::Yes)?;
         run_command(&["git", "fetch", "bzr_origin"], git_repo, Verbose::Yes)?;
 
-        if !git_branches(git_repo)?.contains(&self.slug) {
+        if !git::branches(git_repo)?.contains(&self.slug) {
             run_command(&["git",
                           "branch",
                           "--track",
@@ -221,7 +166,7 @@ impl Branch {
                         git_repo,
                         Verbose::Yes)?;
         }
-        git_checkout_branch(git_repo, &self.slug)?;
+        git::checkout_branch(git_repo, &self.slug)?;
         run_command(&["git", "pull"], git_repo, Verbose::Yes)?;
         run_command(&["git", "push", "github", &self.slug, "--force"],
                     git_repo,
@@ -247,7 +192,7 @@ pub struct MergeProposal {
     pub source_branch: Branch,
     pub target_branch: Branch,
     commit_message: Option<String>,
-    comments: Vec<Comment>,
+    pub comments: Vec<Comment>,
 }
 
 impl MergeProposal {
@@ -260,7 +205,6 @@ impl MergeProposal {
             commit_message: json.commit_message,
             comments: comments,
         };
-        println!("#sirver merge_proposal: {:#?}", merge_proposal);
         Ok(merge_proposal)
     }
 }

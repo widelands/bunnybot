@@ -13,5 +13,7 @@ extern crate reqwest;
 extern crate chrono;
 
 pub mod errors;
-pub mod pidfile;
+pub mod git;
 pub mod launchpad;
+pub mod pidfile;
+pub mod subprocess;
