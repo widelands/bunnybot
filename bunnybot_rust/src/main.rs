@@ -104,20 +104,12 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
         println!("Deleting {} which is not mentioned anymore.", slug);
 
         // Ignore errors - most likely some branches where not really there.
-        match git::delete_remote_branch(git_repo, slug) { 
-            Ok(()) => {}
-            Err(err) => println!("Ignored error while deleting remote branch: {}", err), 
-        };
-        match git::delete_local_branch(git_repo, slug) { 
-            Ok(()) => {}
-            Err(err) => println!("Ignored error while deleting local branch: {}", err), 
-        };
-
-        match fs::remove_dir_all(&bzr_repo.join(slug)) {
-            Ok(()) => {}
-            Err(err) => println!("Ignored error while deleting bzr dir: {}", err), 
-        };
-
+        let _ = git::delete_remote_branch(git_repo, slug)
+            .map_err(|err| println!("Ignored error while deleting remote branch: {}", err));
+        let _ =  git::delete_local_branch(git_repo, slug)
+            .map_err(|err| println!("Ignored error while deleting local branch: {}", err));
+        let _ = fs::remove_dir_all(&bzr_repo.join(slug))
+            .map_err(|err| println!("Ignored error while deleting bzr dir: {}", err));
         state.remove_mentions_of(&slug);
     }
     Ok(())
