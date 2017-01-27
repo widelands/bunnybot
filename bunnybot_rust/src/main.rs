@@ -3,6 +3,8 @@
 #[cfg(target_os = "linux")]
 extern crate scheduler;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate error_chain;
 #[macro_use]
 extern crate serde_derive;
@@ -10,15 +12,22 @@ extern crate serde_json;
 extern crate bunnybot;
 extern crate reqwest;
 extern crate clap;
+extern crate regex;
 
 use std::collections::{HashMap, HashSet};
 use bunnybot::git;
 use bunnybot::errors::*;
 use bunnybot::pidfile::Pidfile;
 use bunnybot::launchpad;
+use regex::Regex;
 use bunnybot::subprocess::{run_command, Verbose};
 use std::fs;
 use std::path::Path;
+
+lazy_static! {
+    static ref MERGE_REGEX: Regex = Regex::new(r"(?i)^@bunnybot.*merge").unwrap();
+}
+
 
 #[derive(Debug,Serialize,Deserialize,Default)]
 struct BranchState {
@@ -188,7 +197,14 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_re
     // Update merge proposal state.
     {
         let merge_proposal_state = state.find_or_insert_merge_proposal_state(&m);
+        let old_num_comments = merge_proposal_state.num_comments;
         merge_proposal_state.num_comments = m.comments.len();
+        for comment in &m.comments[old_num_comments..] {
+            if MERGE_REGEX.find(&comment.message_body).is_some() {
+                m.merge(bzr_repo)?;
+                break;
+            }
+        }
     }
     Ok(())
 }

@@ -42,8 +42,8 @@ pub struct JsonBranch {
 
 #[derive(Deserialize, Debug)]
 pub struct Comment {
-    date_created: DateTime<UTC>,
-    message_body: String,
+    pub date_created: DateTime<UTC>,
+    pub message_body: String,
 }
 
 #[derive(Debug)]
@@ -206,6 +206,66 @@ impl Branch {
             id: result.build.version,
         })
     }
+
+    fn push(&self, bzr_repo: &Path) -> Result<()> {
+        let path = bzr_repo.join(&self.slug);
+        run_command(&["bzr", "push", ":parent", "--overwrite"],
+                    &path,
+                    Verbose::Yes)?;
+        Ok(())
+    }
+
+    fn fix_formatting(&self, bzr_repo: &Path) -> Result<()> {
+        const FORMATTING: &'static str = "utils/fix_formatting.py";
+        let path = bzr_repo.join(&self.slug);
+        if !path.join(FORMATTING).exists() {
+            println!("Did not find {}. Not trying to run it.", FORMATTING);
+            return Ok(());
+        }
+        run_command(&[FORMATTING], &path, Verbose::Yes)?;
+        let result = run_command(&["bzr", "commit", "-m", "Fix formatting."],
+                                 &path,
+                                 Verbose::Yes);
+        match result {
+            Ok(_) => Ok(()),
+            Err(Error(ErrorKind::ProcessFailed(output), _)) => {
+                // If there is nothing to commit, the codecheck didn't change anything. This is no
+                // error.
+                if output.stdout.find("No changes to commit.").is_none() {
+                    Err(ErrorKind::ProcessFailed(output).into())
+                } else {
+                    Ok(())
+                }
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn merge_source(&self,
+                    bzr_repo: &Path,
+                    source: &Branch,
+                    commit_message: &Option<String>)
+                    -> Result<()> {
+        let target_path = bzr_repo.join(&self.slug);
+        run_command(&["bzr", "merge", &format!("../{}", source.slug)],
+                    &target_path,
+                    Verbose::Yes)?;
+
+        self.fix_formatting(bzr_repo)?;
+
+        let mut full_commit_message = format!("Merged lp:{}", source.unique_name);
+        if let Some(ref commit_message) = *commit_message {
+            full_commit_message.push_str(":\n");
+            full_commit_message.push_str(commit_message);
+        } else {
+            full_commit_message.push_str(".");
+        }
+        run_command(&["bzr", "commit", "-m", &full_commit_message],
+                    &target_path,
+                    Verbose::Yes)?;
+        self.push(bzr_repo)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -247,6 +307,13 @@ impl MergeProposal {
                       &temp.path().to_string_lossy()],
                     &Path::new("."),
                     Verbose::No)?;
+        Ok(())
+    }
+
+    pub fn merge(&self, bzr_repo: &Path) -> Result<()> {
+        self.target_branch.update(bzr_repo)?;
+        self.target_branch
+            .merge_source(bzr_repo, &self.source_branch, &self.commit_message)?;
         Ok(())
     }
 }
