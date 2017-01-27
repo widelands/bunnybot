@@ -21,14 +21,9 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Debug,Serialize,Deserialize,Default)]
-struct CiState {
-    state: String,
-}
-
-#[derive(Debug,Serialize,Deserialize,Default)]
 struct BranchState {
-    appveyor_state: CiState,
-    travis_state: CiState,
+    appveyor_state: launchpad::CiState,
+    travis_state: launchpad::CiState,
 }
 
 #[derive(Debug,Serialize,Deserialize)]
@@ -116,6 +111,17 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
     Ok(())
 }
 
+fn build_ci_state_update(travis_state: &launchpad::CiState, appveyor_state: &launchpad::CiState) -> String {
+    let mut comment = String::new();
+    comment.push_str("Continuous integration builds have changed state:\n");
+    comment.push_str("\n");
+    comment.push_str(&format!("Travis build {}. State: {}. Details: https://travis-ci.org/widelands/widelands/builds/{}.\n",
+            travis_state.number, travis_state.state, travis_state.id));
+    comment.push_str(&format!("Appveyor build {}. State: {}. Details: https://ci.appveyor.com/project/widelands-dev/widelands/build/{}.",
+            appveyor_state.number, appveyor_state.state, appveyor_state.id));
+    comment
+}
+
 fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
     let trunk = launchpad::Branch::from_unique_name("~widelands-dev/widelands/trunk");
     trunk.update(bzr_repo)?;
@@ -139,6 +145,51 @@ fn set_nice_level() -> Result<()> {
 
 #[cfg(not(target_os = "linux"))]
 fn set_nice_level() -> Result<()> {
+    Ok(())
+}
+
+fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_repo: &Path, git_repo: &Path, always_update: bool) -> Result<()> {
+    let was_updated = m.source_branch.update(&bzr_repo)?;
+    if always_update || was_updated {
+        m.source_branch.update_git(&git_repo)?;
+    }
+
+    // If we were updated, there is no point in checking/updating CI state: It will rerun very
+    // soon again anyways.
+    if was_updated {
+        return Ok(());
+    }
+
+    // Getting the appveyor state is often the slowest part in handling a branch.
+    let travis_state = m.source_branch.travis_state()?;
+    if travis_state.is_transitional() {
+        return Ok(());
+    }
+    let appveyor_state = m.source_branch.appveyor_state()?;
+    if appveyor_state.is_transitional() {
+        return Ok(());
+    }
+
+    // Update branch state.
+    {
+        let mut branch_state = state.branches
+            .entry(m.source_branch.unique_name.clone())
+            .or_insert(BranchState::default());
+
+        if branch_state.travis_state.state != travis_state.state ||
+            branch_state.appveyor_state.state != appveyor_state.state {
+                m.add_comment(&build_ci_state_update(&travis_state, &appveyor_state))?;
+            }
+
+        branch_state.travis_state = travis_state;
+        branch_state.appveyor_state = appveyor_state;
+    }
+
+    // Update merge proposal state.
+    {
+        let merge_proposal_state = state.find_or_insert_merge_proposal_state(&m);
+        merge_proposal_state.num_comments = m.comments.len();
+    }
     Ok(())
 }
 
@@ -178,32 +229,7 @@ fn run() -> Result<()> {
         branches_slug.insert(m.target_branch.slug.clone());
         branches_slug.insert(m.source_branch.slug.clone());
 
-        // NOCOM(#sirver): this is the slowest part here.
-        let travis_state = m.source_branch.travis_state()?;
-        let appveyor_state = m.source_branch.appveyor_state()?;
-
-        let mut update = always_update;
-        if let bunnybot::launchpad::WasUpdated::Yes(_) = m.source_branch.update(&bzr_repo)? {
-            update = true;
-        }
-        if update {
-            m.source_branch.update_git(&git_repo)?;
-        }
-
-        // Update branch state.
-        {
-            let mut branch_state = state.branches
-                .entry(m.source_branch.unique_name.clone())
-                .or_insert(BranchState::default());
-            branch_state.travis_state.state = travis_state.state;
-            branch_state.appveyor_state.state = appveyor_state.status;
-        }
-
-        // Update merge proposal state.
-        {
-            let merge_proposal_state = state.find_or_insert_merge_proposal_state(&m);
-            merge_proposal_state.num_comments = m.comments.len();
-        }
+        handle_merge_proposal(&m, &mut state, &bzr_repo, &git_repo, always_update)?;
 
         state.save(&data_dir).unwrap();
         println!("\n");

@@ -7,6 +7,7 @@ use regex::Regex;
 use subprocess::{run_command, Verbose};
 use std::io::Read;
 use chrono::{DateTime, UTC};
+use tempfile;
 use git;
 
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
@@ -46,19 +47,6 @@ pub struct Comment {
 }
 
 #[derive(Debug)]
-pub struct Revisions {
-    // NOCOM(#sirver): what if it was not there?
-    pub before: i32,
-    pub after: i32,
-}
-
-#[derive(Debug)]
-pub enum WasUpdated {
-    No,
-    Yes(Revisions),
-}
-
-#[derive(Debug)]
 pub struct Branch {
     // For example: ~widelands-dev/widelands/trunk
     pub unique_name: String,
@@ -74,7 +62,35 @@ struct JsonTravisBuild {
 pub struct JsonTravisBranch {
     finished_at: Option<DateTime<UTC>>,
     started_at: DateTime<UTC>,
+    state: String,
+    number: String,
+    id: String,
+}
+
+#[derive(Debug,Default,Serialize,Deserialize)]
+pub struct CiState {
     pub state: String,
+    pub id: String,
+    pub number: String,
+}
+
+
+#[derive(Debug, Serialize)]
+struct JsonComment<'a> {
+    source_branch: &'a str,
+    target_branch: &'a str,
+    comment: &'a str,
+}
+
+impl CiState {
+    pub fn is_transitional(&self) -> bool {
+        for state in ["passed", "failed", "errored", "canceled"].iter() {
+            if self.state == *state {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug,Deserialize)]
@@ -86,7 +102,10 @@ struct JsonAppveyorBuild {
 pub struct JsonAppveyorBranch {
     created: DateTime<UTC>,
     finished: Option<DateTime<UTC>>,
-    pub status: String,
+    status: String,
+    #[serde(rename = "buildNumber")]
+    build_number: String,
+    version: String,
 }
 
 pub fn slugify(branch: &str) -> String {
@@ -107,13 +126,11 @@ impl Branch {
         }
     }
 
-    pub fn update(&self, bzr_repo: &Path) -> Result<WasUpdated> {
+    /// Returns true if the branch changed.
+    pub fn update(&self, bzr_repo: &Path) -> Result<bool> {
         if !self.is_branched(bzr_repo) {
             self.branch(bzr_repo)?;
-            return Ok(WasUpdated::Yes(Revisions {
-                before: 0,
-                after: self.revno(bzr_repo)?,
-            }));
+            return Ok(true);
         }
         self.pull(bzr_repo)
     }
@@ -129,21 +146,14 @@ impl Branch {
         Ok(())
     }
 
-    fn pull(&self, bzr_repo: &Path) -> Result<WasUpdated> {
+    /// Returns true if the branch changed.
+    fn pull(&self, bzr_repo: &Path) -> Result<bool> {
         let before = self.revno(bzr_repo)?;
         run_command(&["bzr", "revert"], &bzr_repo.join(&self.slug), Verbose::Yes)?;
         run_command(&["bzr", "pull", "--overwrite"],
                     &bzr_repo.join(&self.slug),
                     Verbose::Yes)?;
-        let after = self.revno(bzr_repo)?;
-        Ok(if before != after {
-            WasUpdated::Yes(Revisions {
-                before: before,
-                after: after,
-            })
-        } else {
-            WasUpdated::No
-        })
+        Ok(before != self.revno(bzr_repo)?)
     }
 
     fn revno(&self, bzr_repo: &Path) -> Result<i32> {
@@ -177,16 +187,24 @@ impl Branch {
         Ok(())
     }
 
-    pub fn travis_state(&self) -> Result<JsonTravisBranch> {
+    pub fn travis_state(&self) -> Result<CiState> {
         let url = format!("{}/{}", TRAVIS_ROOT, self.slug);
         let result = get::<JsonTravisBuild>(&url)?;
-        Ok(result.branch)
+        Ok(CiState {
+            state: result.branch.state,
+            number: result.branch.number,
+            id: result.branch.id,
+        })
     }
 
-    pub fn appveyor_state(&self) -> Result<JsonAppveyorBranch> {
+    pub fn appveyor_state(&self) -> Result<CiState> {
         let url = format!("{}/{}", APPVEYOR_ROOT, self.slug);
         let result = get::<JsonAppveyorBuild>(&url)?;
-        Ok(result.build)
+        Ok(CiState {
+            state: result.build.status,
+            number: result.build.build_number,
+            id: result.build.version,
+        })
     }
 }
 
@@ -209,6 +227,27 @@ impl MergeProposal {
             comments: comments,
         };
         Ok(merge_proposal)
+    }
+
+    pub fn add_comment(&self, comment: &str) -> Result<()> {
+        let json_comment = JsonComment {
+            comment: comment,
+            source_branch: &self.source_branch.unique_name,
+            target_branch: &self.target_branch.unique_name,
+        };
+        let mut temp = tempfile::NamedTempFile::new().chain_err(|| "Could not create temporary file for comments.json.")?;
+
+        serde_json::to_writer_pretty(&mut temp, &json_comment).chain_err(|| "Could not write comment.json")?;
+        temp.sync_all().chain_err(|| "Could not flush.")?;
+
+        run_command(&["./post_comment.py",
+                      "--credentials",
+                      "data/launchpad_credentials.txt",
+                      "--comment",
+                      &temp.path().to_string_lossy()],
+                    &Path::new("."),
+                    Verbose::No)?;
+        Ok(())
     }
 }
 

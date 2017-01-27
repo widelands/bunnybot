@@ -11,6 +11,7 @@ extern crate serde_json;
 extern crate regex;
 extern crate reqwest;
 extern crate chrono;
+extern crate tempfile;
 
 pub mod errors;
 pub mod git;
