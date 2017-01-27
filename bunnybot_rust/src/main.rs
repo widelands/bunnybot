@@ -16,6 +16,7 @@ use bunnybot::git;
 use bunnybot::errors::*;
 use bunnybot::pidfile::Pidfile;
 use bunnybot::launchpad;
+use bunnybot::subprocess::{run_command, Verbose};
 use std::fs;
 use std::path::Path;
 
@@ -106,12 +107,28 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
         // Ignore errors - most likely some branches where not really there.
         let _ = git::delete_remote_branch(git_repo, slug)
             .map_err(|err| println!("Ignored error while deleting remote branch: {}", err));
-        let _ =  git::delete_local_branch(git_repo, slug)
+        let _ = git::delete_local_branch(git_repo, slug)
             .map_err(|err| println!("Ignored error while deleting local branch: {}", err));
         let _ = fs::remove_dir_all(&bzr_repo.join(slug))
             .map_err(|err| println!("Ignored error while deleting bzr dir: {}", err));
         state.remove_mentions_of(&slug);
     }
+    Ok(())
+}
+
+fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
+    let trunk = launchpad::Branch::from_unique_name("~widelands-dev/widelands/trunk");
+    trunk.update(bzr_repo)?;
+    trunk.update_git(git_repo)?;
+
+    // Merge trunk into master and push to github.
+    git::checkout_branch(git_repo, "master")?;
+    run_command(&["git", "merge", "--ff-only", &trunk.slug],
+                git_repo,
+                Verbose::Yes)?;
+    run_command(&["git", "push", "github", "master", "--force"],
+                git_repo,
+                Verbose::Yes)?;
     Ok(())
 }
 
@@ -191,9 +208,10 @@ fn run() -> Result<()> {
         state.save(&data_dir).unwrap();
         println!("\n");
     }
-
-    delete_unmentioned_branches(&branches_slug, &mut state, &bzr_repo, &git_repo)?;
     state.save(&data_dir).unwrap();
+
+    update_git_master(&bzr_repo, &git_repo)?;
+    delete_unmentioned_branches(&branches_slug, &mut state, &bzr_repo, &git_repo)?;
 
     Ok(())
 }

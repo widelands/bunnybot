@@ -1,3 +1,5 @@
+use subprocess::Output;
+
 error_chain! {
     errors {
         PidFileExists {
@@ -9,8 +11,9 @@ error_chain! {
             display("HTTP request for {} failed", url)
         }
 
-        ProcessFailed {
+        ProcessFailed(output: Output) {
             description("Process failed.")
+            display("Output:\nstdout:\n{}\nstderr:\n{}\n", output.stdout, output.stderr)
         }
     }
 }

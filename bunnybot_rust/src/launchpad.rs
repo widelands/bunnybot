@@ -96,10 +96,13 @@ pub fn slugify(branch: &str) -> String {
 impl Branch {
     pub fn from_lp_api_link(url: &str) -> Self {
         assert!(url.starts_with(LP_API));
-        let unique_name = url.split_at(LP_API.len()).1.to_string();
+        Branch::from_unique_name(url.split_at(LP_API.len()).1)
+    }
+
+    pub fn from_unique_name(unique_name: &str) -> Self {
         let slug = slugify(&unique_name);
         Branch {
-            unique_name: unique_name,
+            unique_name: unique_name.to_string(),
             slug: slug,
         }
     }

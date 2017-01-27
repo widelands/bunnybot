@@ -40,7 +40,7 @@ pub fn run_command(args: &[&str], cwd: &Path, verbose: Verbose) -> Result<Output
     }
 
     if !res.status.success() {
-        bail!(ErrorKind::ProcessFailed);
+        bail!(ErrorKind::ProcessFailed(output));
     }
     Ok(output)
 }
