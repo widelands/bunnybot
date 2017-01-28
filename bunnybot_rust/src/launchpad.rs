@@ -61,10 +61,10 @@ struct JsonTravisBuild {
 #[derive(Debug,Deserialize)]
 pub struct JsonTravisBranch {
     finished_at: Option<DateTime<UTC>>,
-    started_at: DateTime<UTC>,
+    started_at: Option<DateTime<UTC>>,
     state: String,
     number: String,
-    id: String,
+    id: i64,
 }
 
 #[derive(Debug,Default,Serialize,Deserialize)]
@@ -84,12 +84,12 @@ struct JsonComment<'a> {
 
 impl CiState {
     pub fn is_transitional(&self) -> bool {
-        for state in ["passed", "failed", "errored", "canceled"].iter() {
+        for state in ["success", "passed", "failed", "errored", "canceled"].iter() {
             if self.state == *state {
-                return true;
+                return false;
             }
         }
-        false
+        true
     }
 }
 
@@ -104,7 +104,7 @@ pub struct JsonAppveyorBranch {
     finished: Option<DateTime<UTC>>,
     status: String,
     #[serde(rename = "buildNumber")]
-    build_number: String,
+    build_number: i64,
     version: String,
 }
 
@@ -193,7 +193,7 @@ impl Branch {
         Ok(CiState {
             state: result.branch.state,
             number: result.branch.number,
-            id: result.branch.id,
+            id: result.branch.id.to_string(),
         })
     }
 
@@ -202,7 +202,7 @@ impl Branch {
         let result = get::<JsonAppveyorBuild>(&url)?;
         Ok(CiState {
             state: result.build.status,
-            number: result.build.build_number,
+            number: result.build.build_number.to_string(),
             id: result.build.version,
         })
     }
@@ -215,7 +215,7 @@ impl Branch {
         Ok(())
     }
 
-    fn fix_formatting(&self, bzr_repo: &Path) -> Result<()> {
+    fn fix_formatting(&self, bzr_repo: &Path, commit: bool) -> Result<()> {
         const FORMATTING: &'static str = "utils/fix_formatting.py";
         let path = bzr_repo.join(&self.slug);
         if !path.join(FORMATTING).exists() {
@@ -223,6 +223,10 @@ impl Branch {
             return Ok(());
         }
         run_command(&[FORMATTING], &path, Verbose::Yes)?;
+        if !commit {
+            return Ok(());
+        }
+
         let result = run_command(&["bzr", "commit", "-m", "Fix formatting."],
                                  &path,
                                  Verbose::Yes);
@@ -251,7 +255,7 @@ impl Branch {
                     &target_path,
                     Verbose::Yes)?;
 
-        self.fix_formatting(bzr_repo)?;
+        self.fix_formatting(bzr_repo, false)?;
 
         let mut full_commit_message = format!("Merged lp:{}", source.unique_name);
         if let Some(ref commit_message) = *commit_message {
@@ -328,7 +332,7 @@ fn get<D>(url: &str) -> Result<D>
 
     let mut json = String::new();
     response.read_to_string(&mut json).unwrap();
-    let result = serde_json::from_str(&json).chain_err(|| "Invalid JSON object.")?;
+    let result = serde_json::from_str(&json).chain_err(|| format!("Invalid JSON object: {}", &json))?;
     Ok(result)
 }
 

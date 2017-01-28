@@ -25,7 +25,7 @@ use std::fs;
 use std::path::Path;
 
 lazy_static! {
-    static ref MERGE_REGEX: Regex = Regex::new(r"(?i)^@bunnybot.*merge").unwrap();
+    static ref MERGE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge").unwrap();
 }
 
 
@@ -148,14 +148,12 @@ fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn set_nice_level() -> Result<()> {
-    scheduler.set_self_priority(10)?;
+fn set_nice_level() {
+    scheduler::set_self_priority(scheduler::Which::Process, 10).unwrap();
 }
 
 #[cfg(not(target_os = "linux"))]
-fn set_nice_level() -> Result<()> {
-    Ok(())
-}
+fn set_nice_level() {}
 
 fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_repo: &Path, git_repo: &Path, always_update: bool) -> Result<()> {
     let was_updated = m.source_branch.update(&bzr_repo)?;
@@ -172,10 +170,12 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_re
     // Getting the appveyor state is often the slowest part in handling a branch.
     let travis_state = m.source_branch.travis_state()?;
     if travis_state.is_transitional() {
+        println!("Travis state is transitional: {}", travis_state.state);
         return Ok(());
     }
     let appveyor_state = m.source_branch.appveyor_state()?;
     if appveyor_state.is_transitional() {
+        println!("Appveyor state is transitional: {}", appveyor_state.state);
         return Ok(());
     }
 
@@ -224,6 +224,9 @@ fn parse_args() -> clap::ArgMatches<'static> {
 }
 
 fn run() -> Result<()> {
+    let _pidfile = Pidfile::new()?;
+    set_nice_level();
+
     let args = parse_args();
     let always_update = args.occurrences_of("always_update") > 0;
     let data_dir = Path::new(args.value_of("data_dir").unwrap());
@@ -231,9 +234,6 @@ fn run() -> Result<()> {
     let git_repo = data_dir.join(Path::new("git_repo"));
 
     let mut state = State::load(&data_dir)?;
-
-    let _pidfile = Pidfile::new()?;
-    set_nice_level()?;
 
     let mut branches_slug = HashSet::<String>::new();
 
