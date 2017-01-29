@@ -14,10 +14,6 @@ serde_derive = "0.8.6"
 serde_json = "0.8.6"
 tempfile = "2.1.5"
 
-[dependencies.chrono]
-features = ["serde"]
-version = "0.2.25"
-
 [target]
 
 [target."cfg(target_os=\"linux\")"]

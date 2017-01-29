@@ -6,7 +6,6 @@ use std::path::Path;
 use regex::Regex;
 use subprocess::{run_command, Verbose};
 use std::io::Read;
-use chrono::{DateTime, UTC};
 use tempfile;
 use git;
 
@@ -24,9 +23,8 @@ struct JsonCollection<T> {
     entries: Vec<T>,
 }
 
-// NOCOM(#sirver): should not be pub
 #[derive(Deserialize, Debug)]
-pub struct JsonMergeProposal {
+struct JsonMergeProposal {
     self_link: String,
     all_comments_collection_link: String,
     source_branch_link: String,
@@ -35,14 +33,13 @@ pub struct JsonMergeProposal {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct JsonBranch {
+struct JsonBranch {
     self_link: String,
     unique_name: String,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct Comment {
-    pub date_created: DateTime<UTC>,
     pub message_body: String,
 }
 
@@ -59,9 +56,7 @@ struct JsonTravisBuild {
 }
 
 #[derive(Debug,Deserialize)]
-pub struct JsonTravisBranch {
-    finished_at: Option<DateTime<UTC>>,
-    started_at: Option<DateTime<UTC>>,
+struct JsonTravisBranch {
     state: String,
     number: String,
     id: i64,
@@ -73,7 +68,6 @@ pub struct CiState {
     pub id: String,
     pub number: String,
 }
-
 
 #[derive(Debug, Serialize)]
 struct JsonComment<'a> {
@@ -99,9 +93,7 @@ struct JsonAppveyorBuild {
 }
 
 #[derive(Debug,Deserialize)]
-pub struct JsonAppveyorBranch {
-    created: DateTime<UTC>,
-    finished: Option<DateTime<UTC>>,
+struct JsonAppveyorBranch {
     status: String,
     #[serde(rename = "buildNumber")]
     build_number: i64,
@@ -113,7 +105,7 @@ pub fn slugify(branch: &str) -> String {
 }
 
 impl Branch {
-    pub fn from_lp_api_link(url: &str) -> Self {
+    fn from_lp_api_link(url: &str) -> Self {
         assert!(url.starts_with(LP_API));
         Branch::from_unique_name(url.split_at(LP_API.len()).1)
     }
@@ -281,7 +273,7 @@ pub struct MergeProposal {
 }
 
 impl MergeProposal {
-    pub fn from_json(json: JsonMergeProposal) -> Result<Self> {
+    fn from_json(json: JsonMergeProposal) -> Result<Self> {
         let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?.entries;
 
         let merge_proposal = MergeProposal {
