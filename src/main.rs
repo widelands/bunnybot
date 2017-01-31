@@ -117,6 +117,18 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
             .map_err(|err| println!("Ignored error while deleting bzr dir: {}", err));
         state.remove_mentions_of(&slug);
     }
+
+    let mut state_slugs = state.branches.keys().map(|k| launchpad::slugify(&k)).collect::<HashSet<_>>();
+    for proposal in &state.merge_proposals {
+        state_slugs.insert(launchpad::slugify(&proposal.source_branch));
+        state_slugs.insert(launchpad::slugify(&proposal.target_branch));
+    }
+
+    for slug in state_slugs.difference(&slugs) {
+        println!("Deleting {} which is not mentioned anymore.", slug);
+        state.remove_mentions_of(&slug);
+    }
+
     Ok(())
 }
 
@@ -254,6 +266,7 @@ fn run() -> Result<()> {
 
     update_git_master(&bzr_repo, &git_repo)?;
     delete_unmentioned_branches(&branches_slug, &mut state, &bzr_repo, &git_repo)?;
+    state.save(&data_dir).unwrap();
 
     Ok(())
 }
