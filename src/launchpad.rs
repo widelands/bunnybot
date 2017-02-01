@@ -62,7 +62,7 @@ struct JsonTravisBranch {
     id: i64,
 }
 
-#[derive(Debug,Default,Serialize,Deserialize)]
+#[derive(Debug,Default,Serialize,Deserialize,Clone)]
 pub struct CiState {
     pub state: String,
     pub id: String,

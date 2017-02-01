@@ -26,6 +26,7 @@ use std::path::Path;
 
 lazy_static! {
     static ref MERGE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge").unwrap();
+    static ref MERGE_FORCE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge force").unwrap();
 }
 
 
@@ -143,6 +144,15 @@ fn build_ci_state_update(travis_state: &launchpad::CiState, appveyor_state: &lau
     comment
 }
 
+fn build_refuse_merge_comment(travis_state: &launchpad::CiState) -> String {
+    let mut comment = String::new();
+    comment.push_str("Refusing to merge, since Travis is not green. Use @bunnybot merge force for merging anyways.\n");
+    comment.push_str("\n");
+    comment.push_str(&format!("Travis build {}. State: {}. Details: https://travis-ci.org/widelands/widelands/builds/{}.",
+            travis_state.number, travis_state.state, travis_state.id));
+    comment
+}
+
 fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
     let trunk = launchpad::Branch::from_unique_name("~widelands-dev/widelands/trunk");
     trunk.update(bzr_repo)?;
@@ -202,7 +212,7 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_re
                 m.add_comment(&build_ci_state_update(&travis_state, &appveyor_state))?;
             }
 
-        branch_state.travis_state = travis_state;
+        branch_state.travis_state = travis_state.clone();
         branch_state.appveyor_state = appveyor_state;
     }
 
@@ -212,8 +222,16 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_re
         let old_num_comments = merge_proposal_state.num_comments;
         merge_proposal_state.num_comments = m.comments.len();
         for comment in &m.comments[old_num_comments..] {
-            if MERGE_REGEX.find(&comment.message_body).is_some() {
+            if MERGE_FORCE_REGEX.find(&comment.message_body).is_some() {
                 m.merge(bzr_repo)?;
+                break;
+            }
+            if MERGE_REGEX.find(&comment.message_body).is_some() {
+                if travis_state.state != "passed" {
+                    m.add_comment(&build_refuse_merge_comment(&travis_state))?;
+                } else {
+                    m.merge(bzr_repo)?;
+                }
                 break;
             }
         }
