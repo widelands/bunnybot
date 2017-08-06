@@ -51,14 +51,18 @@ struct State {
 
 impl State {
     pub fn load(data_dir: &Path) -> Result<Self> {
-        let file = fs::File::open(&data_dir.join("state.json")).chain_err(|| "Could not find state.json.")?;
-        let this = serde_json::from_reader(file).chain_err(|| "Could not parse state.json.")?;
+        let file = fs::File::open(&data_dir.join("state.json"))
+            .chain_err(|| "Could not find state.json.")?;
+        let this = serde_json::from_reader(file)
+            .chain_err(|| "Could not parse state.json.")?;
         Ok(this)
     }
 
     pub fn save(&self, data_dir: &Path) -> Result<()> {
-        let mut file = fs::File::create(&data_dir.join("state.json")).chain_err(|| "Could not open state.json.")?;
-        serde_json::to_writer_pretty(&mut file, self).chain_err(|| "Could not write state.json")?;
+        let mut file = fs::File::create(&data_dir.join("state.json"))
+            .chain_err(|| "Could not open state.json.")?;
+        serde_json::to_writer_pretty(&mut file, self)
+            .chain_err(|| "Could not write state.json")?;
         Ok(())
     }
 
@@ -74,20 +78,24 @@ impl State {
             }
         }
         if index.is_none() {
-            self.merge_proposals.push(MergeProposalState {
-                num_comments: 0,
-                source_branch: mp.source_branch.unique_name.clone(),
-                target_branch: mp.target_branch.unique_name.clone(),
-            });
+            self.merge_proposals
+                .push(MergeProposalState {
+                          num_comments: 0,
+                          source_branch: mp.source_branch.unique_name.clone(),
+                          target_branch: mp.target_branch.unique_name.clone(),
+                      });
             index = Some(self.merge_proposals.len() - 1);
         }
         self.merge_proposals.get_mut(index.unwrap()).unwrap()
     }
 
     pub fn remove_mentions_of(&mut self, slug: &str) {
-        self.merge_proposals.retain(|m| launchpad::slugify(&m.source_branch) != slug);
-        let new_branches =
-            self.branches.drain().filter(|&(ref k, _)| launchpad::slugify(&k) != slug).collect();
+        self.merge_proposals
+            .retain(|m| launchpad::slugify(&m.source_branch) != slug);
+        let new_branches = self.branches
+            .drain()
+            .filter(|&(ref k, _)| launchpad::slugify(&k) != slug)
+            .collect();
         self.branches = new_branches;
     }
 }
@@ -119,7 +127,11 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
         state.remove_mentions_of(&slug);
     }
 
-    let mut state_slugs = state.branches.keys().map(|k| launchpad::slugify(&k)).collect::<HashSet<_>>();
+    let mut state_slugs = state
+        .branches
+        .keys()
+        .map(|k| launchpad::slugify(&k))
+        .collect::<HashSet<_>>();
     for proposal in &state.merge_proposals {
         state_slugs.insert(launchpad::slugify(&proposal.source_branch));
         state_slugs.insert(launchpad::slugify(&proposal.target_branch));
@@ -133,7 +145,9 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
     Ok(())
 }
 
-fn build_ci_state_update(travis_state: &launchpad::CiState, appveyor_state: &launchpad::CiState) -> String {
+fn build_ci_state_update(travis_state: &launchpad::CiState,
+                         appveyor_state: &launchpad::CiState)
+                         -> String {
     let mut comment = String::new();
     comment.push_str("Continuous integration builds have changed state:\n");
     comment.push_str("\n");
@@ -177,7 +191,12 @@ fn set_nice_level() {
 #[cfg(not(target_os = "linux"))]
 fn set_nice_level() {}
 
-fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_repo: &Path, git_repo: &Path, always_update: bool) -> Result<()> {
+fn handle_merge_proposal(m: &launchpad::MergeProposal,
+                         state: &mut State,
+                         bzr_repo: &Path,
+                         git_repo: &Path,
+                         always_update: bool)
+                         -> Result<()> {
     let was_updated = m.source_branch.update(&bzr_repo)?;
     if always_update || was_updated {
         m.source_branch.update_git(&git_repo)?;
@@ -203,14 +222,15 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal, state: &mut State, bzr_re
 
     // Update branch state.
     {
-        let mut branch_state = state.branches
+        let mut branch_state = state
+            .branches
             .entry(m.source_branch.unique_name.clone())
             .or_insert(BranchState::default());
 
         if branch_state.travis_state.state != travis_state.state ||
-            branch_state.appveyor_state.state != appveyor_state.state {
-                m.add_comment(&build_ci_state_update(&travis_state, &appveyor_state))?;
-            }
+           branch_state.appveyor_state.state != appveyor_state.state {
+            m.add_comment(&build_ci_state_update(&travis_state, &appveyor_state))?;
+        }
 
         branch_state.travis_state = travis_state.clone();
         branch_state.appveyor_state = appveyor_state;
@@ -243,13 +263,13 @@ fn parse_args() -> clap::ArgMatches<'static> {
     clap::App::new("Mergebot for the Widelands project")
         .version("1.0")
         .arg(clap::Arg::with_name("data_dir")
-            .long("data_dir")
-            .help("Data directory.")
-            .takes_value(true)
-            .default_value("data"))
+                 .long("data_dir")
+                 .help("Data directory.")
+                 .takes_value(true)
+                 .default_value("data"))
         .arg(clap::Arg::with_name("always_update")
-            .long("always_update")
-            .help("Update git branches, even if it seems bzr has not changed."))
+                 .long("always_update")
+                 .help("Update git branches, even if it seems bzr has not changed."))
         .get_matches()
 }
 
@@ -267,7 +287,7 @@ fn run() -> Result<()> {
 
     let mut branches_slug = HashSet::<String>::new();
 
-    let merge_proposals = bunnybot::launchpad::get_merge_proposals("~widelands-dev/widelands/trunk")?;
+    let merge_proposals = bunnybot::launchpad::get_merge_proposals("~widelands-dev/widelands/trunk",)?;
     for m in merge_proposals {
         println!("===> Working on {} -> {}",
                  m.source_branch.unique_name,

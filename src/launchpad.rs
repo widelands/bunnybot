@@ -132,7 +132,10 @@ impl Branch {
     }
 
     fn branch(&self, bzr_repo: &Path) -> Result<()> {
-        run_command(&["bzr", "branch", &format!("lp:{}", self.unique_name), &self.slug],
+        run_command(&["bzr",
+                     "branch",
+                     &format!("lp:{}", self.unique_name),
+                     &self.slug],
                     bzr_repo,
                     Verbose::Yes)?;
         Ok(())
@@ -150,8 +153,8 @@ impl Branch {
 
     fn revno(&self, bzr_repo: &Path) -> Result<i32> {
         assert!(self.is_branched(bzr_repo));
-        let output =
-            run_command(&["bzr", "revno"], &bzr_repo.join(&self.slug), Verbose::No)?.stdout;
+        let output = run_command(&["bzr", "revno"], &bzr_repo.join(&self.slug), Verbose::No)?
+            .stdout;
         let revno = output.trim().parse().unwrap();
         Ok(revno)
     }
@@ -183,20 +186,20 @@ impl Branch {
         let url = format!("{}/{}", TRAVIS_ROOT, self.slug);
         let result = get::<JsonTravisBuild>(&url)?;
         Ok(CiState {
-            state: result.branch.state,
-            number: result.branch.number,
-            id: result.branch.id.to_string(),
-        })
+               state: result.branch.state,
+               number: result.branch.number,
+               id: result.branch.id.to_string(),
+           })
     }
 
     pub fn appveyor_state(&self) -> Result<CiState> {
         let url = format!("{}/{}", APPVEYOR_ROOT, self.slug);
         let result = get::<JsonAppveyorBuild>(&url)?;
         Ok(CiState {
-            state: result.build.status,
-            number: result.build.build_number.to_string(),
-            id: result.build.version,
-        })
+               state: result.build.status,
+               number: result.build.build_number.to_string(),
+               id: result.build.version,
+           })
     }
 
     fn push(&self, bzr_repo: &Path) -> Result<()> {
@@ -274,7 +277,8 @@ pub struct MergeProposal {
 
 impl MergeProposal {
     fn from_json(json: JsonMergeProposal) -> Result<Self> {
-        let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?.entries;
+        let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?
+            .entries;
 
         let merge_proposal = MergeProposal {
             source_branch: Branch::from_lp_api_link(&json.source_branch_link),
@@ -291,9 +295,11 @@ impl MergeProposal {
             source_branch: &self.source_branch.unique_name,
             target_branch: &self.target_branch.unique_name,
         };
-        let mut temp = tempfile::NamedTempFile::new().chain_err(|| "Could not create temporary file for comments.json.")?;
+        let mut temp = tempfile::NamedTempFile::new()
+            .chain_err(|| "Could not create temporary file for comments.json.")?;
 
-        serde_json::to_writer_pretty(&mut temp, &json_comment).chain_err(|| "Could not write comment.json")?;
+        serde_json::to_writer_pretty(&mut temp, &json_comment)
+            .chain_err(|| "Could not write comment.json")?;
         temp.sync_all().chain_err(|| "Could not flush.")?;
 
         run_command(&["./post_comment.py",
@@ -317,14 +323,16 @@ impl MergeProposal {
 fn get<D>(url: &str) -> Result<D>
     where D: serde::Deserialize
 {
-    let mut response = reqwest::get(url).chain_err(|| ErrorKind::Http(url.to_string()))?;
+    let mut response = reqwest::get(url)
+        .chain_err(|| ErrorKind::Http(url.to_string()))?;
     if *response.status() != reqwest::StatusCode::Ok {
         bail!(ErrorKind::Http(url.to_string()));
     }
 
     let mut json = String::new();
     response.read_to_string(&mut json).unwrap();
-    let result = serde_json::from_str(&json).chain_err(|| format!("Invalid JSON object: {}", &json))?;
+    let result = serde_json::from_str(&json)
+        .chain_err(|| format!("Invalid JSON object: {}", &json))?;
     Ok(result)
 }
 
