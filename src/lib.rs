@@ -10,7 +10,8 @@ extern crate serde;
 extern crate serde_json;
 extern crate regex;
 extern crate reqwest;
-extern crate tempfile;
+extern crate rand;
+extern crate chrono;
 
 pub mod errors;
 pub mod git;

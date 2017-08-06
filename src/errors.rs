@@ -1,3 +1,5 @@
+#![allow(unused_doc_comment)]
+
 use subprocess::Output;
 
 error_chain! {
@@ -15,5 +17,6 @@ error_chain! {
             description("Process failed.")
             display("Output:\nstdout:\n{}\nstderr:\n{}\n", output.stdout, output.stderr)
         }
+
     }
 }

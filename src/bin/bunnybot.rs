@@ -17,6 +17,7 @@ extern crate regex;
 use std::collections::{HashMap, HashSet};
 use bunnybot::git;
 use bunnybot::errors::*;
+use bunnybot::launchpad::Credentials;
 use bunnybot::pidfile::Pidfile;
 use bunnybot::launchpad;
 use regex::Regex;
@@ -30,20 +31,20 @@ lazy_static! {
 }
 
 
-#[derive(Debug,Serialize,Deserialize,Default)]
+#[derive(Debug,Serialize,Deserialize,Default,Clone)]
 struct BranchState {
     appveyor_state: launchpad::CiState,
     travis_state: launchpad::CiState,
 }
 
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize,Clone)]
 struct MergeProposalState {
     num_comments: usize,
     source_branch: String,
     target_branch: String,
 }
 
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug,Serialize,Deserialize,Clone)]
 struct State {
     branches: HashMap<String, BranchState>,
     merge_proposals: Vec<MergeProposalState>,
@@ -192,6 +193,7 @@ fn set_nice_level() {
 fn set_nice_level() {}
 
 fn handle_merge_proposal(m: &launchpad::MergeProposal,
+                         credentials: &Credentials,
                          state: &mut State,
                          bzr_repo: &Path,
                          git_repo: &Path,
@@ -229,7 +231,8 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal,
 
         if branch_state.travis_state.state != travis_state.state ||
            branch_state.appveyor_state.state != appveyor_state.state {
-            m.add_comment(&build_ci_state_update(&travis_state, &appveyor_state))?;
+            m.add_comment(credentials,
+                             &build_ci_state_update(&travis_state, &appveyor_state))?;
         }
 
         branch_state.travis_state = travis_state.clone();
@@ -248,7 +251,7 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal,
             }
             if MERGE_REGEX.find(&comment.message_body).is_some() {
                 if travis_state.state != "passed" {
-                    m.add_comment(&build_refuse_merge_comment(&travis_state))?;
+                    m.add_comment(credentials, &build_refuse_merge_comment(&travis_state))?;
                 } else {
                     m.merge(bzr_repo)?;
                 }
@@ -283,6 +286,7 @@ fn run() -> Result<()> {
     let bzr_repo = data_dir.join(Path::new("bzr_repo"));
     let git_repo = data_dir.join(Path::new("git_repo"));
 
+    let credentials = Credentials::load(&data_dir)?;
     let mut state = State::load(&data_dir)?;
 
     let mut branches_slug = HashSet::<String>::new();
@@ -295,7 +299,12 @@ fn run() -> Result<()> {
         branches_slug.insert(m.target_branch.slug.clone());
         branches_slug.insert(m.source_branch.slug.clone());
 
-        handle_merge_proposal(&m, &mut state, &bzr_repo, &git_repo, always_update)?;
+        let before_state = state.clone();
+        if let Err(err) = handle_merge_proposal(&m, &credentials, &mut state, &bzr_repo, &git_repo, always_update) {
+            println!("Error handling this proposal. Skipping. Err: {}", err);
+            state = before_state;
+            continue;
+        }
 
         state.save(&data_dir).unwrap();
         println!("\n");

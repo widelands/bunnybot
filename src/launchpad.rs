@@ -2,13 +2,18 @@ use reqwest;
 use errors::*;
 use serde_json;
 use serde;
+use reqwest::header::{Headers, Authorization};
+use rand::{self, Rng};
+use std::fs;
+use chrono::prelude::*;
 use std::path::Path;
 use regex::Regex;
 use subprocess::{run_command, Verbose};
 use std::io::Read;
-use tempfile;
+use std::collections::HashMap;
 use git;
 
+const API_BASE: &str = "https://api.launchpad.net";
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
 const TRAVIS_ROOT: &'static str = "https://api.travis-ci.org/repos/widelands/widelands/branches";
 const APPVEYOR_ROOT: &'static str = "https://ci.appveyor.\
@@ -16,6 +21,23 @@ const APPVEYOR_ROOT: &'static str = "https://ci.appveyor.\
 
 lazy_static! {
     static ref SLUG_REGEX: Regex = Regex::new(r"[^A-Za-z0-9]").unwrap();
+}
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct Credentials {
+    consumer_key: String,
+    access_token: String,
+    access_secret: String,
+}
+
+impl Credentials {
+    pub fn load(data_dir: &Path) -> Result<Self> {
+        let file = fs::File::open(&data_dir.join("launchpad_credentials.json"))
+            .chain_err(|| "Could not find launchpad_credentials.json.")?;
+        let this = serde_json::from_reader(file)
+            .chain_err(|| "Could not parse launchpad_credentials.json.")?;
+        Ok(this)
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -35,6 +57,7 @@ struct JsonMergeProposal {
 #[derive(Deserialize, Debug)]
 struct JsonBranch {
     self_link: String,
+    bzr_identity: String,
     unique_name: String,
 }
 
@@ -67,13 +90,6 @@ pub struct CiState {
     pub state: String,
     pub id: String,
     pub number: String,
-}
-
-#[derive(Debug, Serialize)]
-struct JsonComment<'a> {
-    source_branch: &'a str,
-    target_branch: &'a str,
-    comment: &'a str,
 }
 
 impl CiState {
@@ -133,9 +149,9 @@ impl Branch {
 
     fn branch(&self, bzr_repo: &Path) -> Result<()> {
         run_command(&["bzr",
-                     "branch",
-                     &format!("lp:{}", self.unique_name),
-                     &self.slug],
+                      "branch",
+                      &format!("lp:{}", self.unique_name),
+                      &self.slug],
                     bzr_repo,
                     Verbose::Yes)?;
         Ok(())
@@ -271,8 +287,11 @@ impl Branch {
 pub struct MergeProposal {
     pub source_branch: Branch,
     pub target_branch: Branch,
-    commit_message: Option<String>,
     pub comments: Vec<Comment>,
+    commit_message: Option<String>,
+    self_link: String,
+    source_branch_link: String,
+    target_branch_link: String,
 }
 
 impl MergeProposal {
@@ -282,34 +301,33 @@ impl MergeProposal {
 
         let merge_proposal = MergeProposal {
             source_branch: Branch::from_lp_api_link(&json.source_branch_link),
+            source_branch_link: json.source_branch_link,
             target_branch: Branch::from_lp_api_link(&json.target_branch_link),
+            target_branch_link: json.target_branch_link,
             commit_message: json.commit_message,
             comments: comments,
+            self_link: json.self_link,
         };
         Ok(merge_proposal)
     }
 
-    pub fn add_comment(&self, comment: &str) -> Result<()> {
-        let json_comment = JsonComment {
-            comment: comment,
-            source_branch: &self.source_branch.unique_name,
-            target_branch: &self.target_branch.unique_name,
-        };
-        let mut temp = tempfile::NamedTempFile::new()
-            .chain_err(|| "Could not create temporary file for comments.json.")?;
+    pub fn add_comment(&self, credentials: &Credentials, comment: &str) -> Result<()> {
+        let source_branch_json = get::<JsonBranch>(&self.source_branch_link)?;
+        let target_branch_json = get::<JsonBranch>(&self.target_branch_link)?;
 
-        serde_json::to_writer_pretty(&mut temp, &json_comment)
-            .chain_err(|| "Could not write comment.json")?;
-        temp.sync_all().chain_err(|| "Could not flush.")?;
+        // This subject is what Launchpad currently uses for sending out their email. We want to
+        // use the same, so that threads are not broken in email clients, but Launchpad offers no
+        // API.
+        let subject = format!("[Merge] {} into {}",
+                              source_branch_json.bzr_identity,
+                              target_branch_json.bzr_identity);
 
-        run_command(&["./post_comment.py",
-                      "--credentials",
-                      "data/launchpad_credentials.txt",
-                      "--comment",
-                      &temp.path().to_string_lossy()],
-                    &Path::new("."),
-                    Verbose::No)?;
-        Ok(())
+        let mut values = HashMap::new();
+        values.insert("ws.op", "createComment");
+        values.insert("subject", &subject);
+        values.insert("content", comment);
+        post(&self.self_link, credentials, values)
+            .chain_err(|| ErrorKind::Http(self.self_link.clone()))
     }
 
     pub fn merge(&self, bzr_repo: &Path) -> Result<()> {
@@ -325,7 +343,7 @@ fn get<D>(url: &str) -> Result<D>
 {
     let mut response = reqwest::get(url)
         .chain_err(|| ErrorKind::Http(url.to_string()))?;
-    if *response.status() != reqwest::StatusCode::Ok {
+    if response.status() != reqwest::StatusCode::Ok {
         bail!(ErrorKind::Http(url.to_string()));
     }
 
@@ -334,6 +352,37 @@ fn get<D>(url: &str) -> Result<D>
     let result = serde_json::from_str(&json)
         .chain_err(|| format!("Invalid JSON object: {}", &json))?;
     Ok(result)
+}
+
+fn post(url: &str, credentials: &Credentials, fields: HashMap<&str, &str>) -> reqwest::Result<()> {
+    let client = reqwest::Client::new()?;
+
+    let mut headers = Headers::new();
+    headers.set(Authorization(build_oauth_str(credentials)));
+
+    client.post(url)?.form(&fields)?.headers(headers).send()?;
+    Ok(())
+}
+
+fn build_oauth_str(credentials: &Credentials) -> String {
+    let mut rng = rand::thread_rng();
+    let nonce: u64 = rng.gen();
+    let utc: DateTime<Utc> = Utc::now();
+    format!("OAuth realm=\"{}/\", \
+        oauth_consumer_key=\"{}\", \
+        oauth_token=\"{}\", \
+        oauth_signature_method=\"PLAINTEXT\", \
+        oauth_signature=\"%26{}\", \
+        oauth_timestamp=\"{}\", \
+        oauth_nonce=\"{}\", \
+        oauth_version=\"1.0\"",
+            API_BASE,
+            credentials.consumer_key,
+            credentials.access_token,
+            credentials.access_secret,
+            utc.timestamp(),
+            nonce)
+
 }
 
 pub fn get_merge_proposals(name: &str) -> Result<Vec<MergeProposal>> {
