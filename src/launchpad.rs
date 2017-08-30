@@ -2,7 +2,7 @@ use reqwest;
 use errors::*;
 use serde_json;
 use serde;
-use reqwest::header::{Headers, Authorization};
+use reqwest::header::{Authorization, Headers};
 use rand::{self, Rng};
 use std::fs;
 use chrono::prelude::*;
@@ -23,7 +23,7 @@ lazy_static! {
     static ref SLUG_REGEX: Regex = Regex::new(r"[^A-Za-z0-9]").unwrap();
 }
 
-#[derive(Debug,Serialize,Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Credentials {
     consumer_key: String,
     access_token: String,
@@ -73,19 +73,19 @@ pub struct Branch {
     pub slug: String,
 }
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 struct JsonTravisBuild {
     branch: JsonTravisBranch,
 }
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 struct JsonTravisBranch {
     state: String,
     number: String,
     id: i64,
 }
 
-#[derive(Debug,Default,Serialize,Deserialize,Clone)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct CiState {
     pub state: String,
     pub id: String,
@@ -103,16 +103,15 @@ impl CiState {
     }
 }
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 struct JsonAppveyorBuild {
     build: JsonAppveyorBranch,
 }
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 struct JsonAppveyorBranch {
     status: String,
-    #[serde(rename = "buildNumber")]
-    build_number: i64,
+    #[serde(rename = "buildNumber")] build_number: i64,
     version: String,
 }
 
@@ -148,53 +147,73 @@ impl Branch {
     }
 
     fn branch(&self, bzr_repo: &Path) -> Result<()> {
-        run_command(&["bzr",
-                      "branch",
-                      &format!("lp:{}", self.unique_name),
-                      &self.slug],
-                    bzr_repo,
-                    Verbose::Yes)?;
+        run_command(
+            &[
+                "bzr",
+                "branch",
+                &format!("lp:{}", self.unique_name),
+                &self.slug,
+            ],
+            bzr_repo,
+            Verbose::Yes,
+        )?;
+        Ok(())
+    }
+
+    /// Revert the changes in the branch (if any).
+    fn revert(&self, bzr_repo: &Path) -> Result<()> {
+        run_command(&["bzr", "revert"], &bzr_repo.join(&self.slug), Verbose::Yes)?;
         Ok(())
     }
 
     /// Returns true if the branch changed.
     fn pull(&self, bzr_repo: &Path) -> Result<bool> {
         let before = self.revno(bzr_repo)?;
-        run_command(&["bzr", "revert"], &bzr_repo.join(&self.slug), Verbose::Yes)?;
-        run_command(&["bzr", "pull", "--overwrite"],
-                    &bzr_repo.join(&self.slug),
-                    Verbose::Yes)?;
+        self.revert(bzr_repo)?;
+        run_command(
+            &["bzr", "pull", "--overwrite"],
+            &bzr_repo.join(&self.slug),
+            Verbose::Yes,
+        )?;
         Ok(before != self.revno(bzr_repo)?)
     }
 
     fn revno(&self, bzr_repo: &Path) -> Result<i32> {
         assert!(self.is_branched(bzr_repo));
-        let output = run_command(&["bzr", "revno"], &bzr_repo.join(&self.slug), Verbose::No)?
-            .stdout;
+        let output =
+            run_command(&["bzr", "revno"], &bzr_repo.join(&self.slug), Verbose::No)?.stdout;
         let revno = output.trim().parse().unwrap();
         Ok(revno)
     }
 
     pub fn update_git(&self, git_repo: &Path) -> Result<()> {
-        run_command(&["git", "config", "remote-bzr.branches", &self.slug],
-                    git_repo,
-                    Verbose::Yes)?;
+        run_command(
+            &["git", "config", "remote-bzr.branches", &self.slug],
+            git_repo,
+            Verbose::Yes,
+        )?;
         run_command(&["git", "fetch", "bzr_origin"], git_repo, Verbose::Yes)?;
 
         if !git::branches(git_repo)?.contains(&self.slug) {
-            run_command(&["git",
-                          "branch",
-                          "--track",
-                          &self.slug,
-                          &format!("bzr_origin/{}", self.slug)],
-                        git_repo,
-                        Verbose::Yes)?;
+            run_command(
+                &[
+                    "git",
+                    "branch",
+                    "--track",
+                    &self.slug,
+                    &format!("bzr_origin/{}", self.slug),
+                ],
+                git_repo,
+                Verbose::Yes,
+            )?;
         }
         git::checkout_branch(git_repo, &self.slug)?;
         run_command(&["git", "pull"], git_repo, Verbose::Yes)?;
-        run_command(&["git", "push", "github", &self.slug, "--force"],
-                    git_repo,
-                    Verbose::Yes)?;
+        run_command(
+            &["git", "push", "github", &self.slug, "--force"],
+            git_repo,
+            Verbose::Yes,
+        )?;
         Ok(())
     }
 
@@ -202,27 +221,29 @@ impl Branch {
         let url = format!("{}/{}", TRAVIS_ROOT, self.slug);
         let result = get::<JsonTravisBuild>(&url)?;
         Ok(CiState {
-               state: result.branch.state,
-               number: result.branch.number,
-               id: result.branch.id.to_string(),
-           })
+            state: result.branch.state,
+            number: result.branch.number,
+            id: result.branch.id.to_string(),
+        })
     }
 
     pub fn appveyor_state(&self) -> Result<CiState> {
         let url = format!("{}/{}", APPVEYOR_ROOT, self.slug);
         let result = get::<JsonAppveyorBuild>(&url)?;
         Ok(CiState {
-               state: result.build.status,
-               number: result.build.build_number.to_string(),
-               id: result.build.version,
-           })
+            state: result.build.status,
+            number: result.build.build_number.to_string(),
+            id: result.build.version,
+        })
     }
 
     fn push(&self, bzr_repo: &Path) -> Result<()> {
         let path = bzr_repo.join(&self.slug);
-        run_command(&["bzr", "push", ":parent", "--overwrite"],
-                    &path,
-                    Verbose::Yes)?;
+        run_command(
+            &["bzr", "push", ":parent", "--overwrite"],
+            &path,
+            Verbose::Yes,
+        )?;
         Ok(())
     }
 
@@ -238,9 +259,11 @@ impl Branch {
             return Ok(());
         }
 
-        let result = run_command(&["bzr", "commit", "-m", "Fix formatting."],
-                                 &path,
-                                 Verbose::Yes);
+        let result = run_command(
+            &["bzr", "commit", "-m", "Fix formatting."],
+            &path,
+            Verbose::Yes,
+        );
         match result {
             Ok(_) => Ok(()),
             Err(Error(ErrorKind::ProcessFailed(output), _)) => {
@@ -256,15 +279,18 @@ impl Branch {
         }
     }
 
-    fn merge_source(&self,
-                    bzr_repo: &Path,
-                    source: &Branch,
-                    commit_message: &Option<String>)
-                    -> Result<()> {
+    fn merge_source(
+        &self,
+        bzr_repo: &Path,
+        source: &Branch,
+        commit_message: &Option<String>,
+    ) -> Result<()> {
         let target_path = bzr_repo.join(&self.slug);
-        run_command(&["bzr", "merge", &format!("../{}", source.slug)],
-                    &target_path,
-                    Verbose::Yes)?;
+        run_command(
+            &["bzr", "merge", &format!("../{}", source.slug)],
+            &target_path,
+            Verbose::Yes,
+        )?;
 
         self.fix_formatting(bzr_repo, false)?;
 
@@ -275,9 +301,11 @@ impl Branch {
         } else {
             full_commit_message.push_str(".");
         }
-        run_command(&["bzr", "commit", "-m", &full_commit_message],
-                    &target_path,
-                    Verbose::Yes)?;
+        run_command(
+            &["bzr", "commit", "-m", &full_commit_message],
+            &target_path,
+            Verbose::Yes,
+        )?;
         self.push(bzr_repo)?;
         Ok(())
     }
@@ -296,8 +324,7 @@ pub struct MergeProposal {
 
 impl MergeProposal {
     fn from_json(json: JsonMergeProposal) -> Result<Self> {
-        let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?
-            .entries;
+        let comments = get::<JsonCollection<Comment>>(&json.all_comments_collection_link)?.entries;
 
         let merge_proposal = MergeProposal {
             source_branch: Branch::from_lp_api_link(&json.source_branch_link),
@@ -318,9 +345,11 @@ impl MergeProposal {
         // This subject is what Launchpad currently uses for sending out their email. We want to
         // use the same, so that threads are not broken in email clients, but Launchpad offers no
         // API.
-        let subject = format!("[Merge] {} into {}",
-                              source_branch_json.bzr_identity,
-                              target_branch_json.bzr_identity);
+        let subject = format!(
+            "[Merge] {} into {}",
+            source_branch_json.bzr_identity,
+            target_branch_json.bzr_identity
+        );
 
         let mut values = HashMap::new();
         values.insert("ws.op", "createComment");
@@ -332,25 +361,30 @@ impl MergeProposal {
 
     pub fn merge(&self, bzr_repo: &Path) -> Result<()> {
         self.target_branch.update(bzr_repo)?;
-        self.target_branch
-            .merge_source(bzr_repo, &self.source_branch, &self.commit_message)?;
-        Ok(())
+        let result =
+            self.target_branch
+                .merge_source(bzr_repo, &self.source_branch, &self.commit_message);
+        if result.is_err() {
+            // Ignoring errors. We just try to clean up.
+            let _ = self.target_branch.revert(bzr_repo);
+        }
+        result
     }
 }
 
 fn get<D>(url: &str) -> Result<D>
-    where D: serde::Deserialize
+where
+    D: serde::Deserialize,
 {
-    let mut response = reqwest::get(url)
-        .chain_err(|| ErrorKind::Http(url.to_string()))?;
+    let mut response = reqwest::get(url).chain_err(|| ErrorKind::Http(url.to_string()))?;
     if response.status() != reqwest::StatusCode::Ok {
         bail!(ErrorKind::Http(url.to_string()));
     }
 
     let mut json = String::new();
     response.read_to_string(&mut json).unwrap();
-    let result = serde_json::from_str(&json)
-        .chain_err(|| format!("Invalid JSON object: {}", &json))?;
+    let result =
+        serde_json::from_str(&json).chain_err(|| format!("Invalid JSON object: {}", &json))?;
     Ok(result)
 }
 
@@ -368,27 +402,30 @@ fn build_oauth_str(credentials: &Credentials) -> String {
     let mut rng = rand::thread_rng();
     let nonce: u64 = rng.gen();
     let utc: DateTime<Utc> = Utc::now();
-    format!("OAuth realm=\"{}/\", \
-        oauth_consumer_key=\"{}\", \
-        oauth_token=\"{}\", \
-        oauth_signature_method=\"PLAINTEXT\", \
-        oauth_signature=\"%26{}\", \
-        oauth_timestamp=\"{}\", \
-        oauth_nonce=\"{}\", \
-        oauth_version=\"1.0\"",
-            API_BASE,
-            credentials.consumer_key,
-            credentials.access_token,
-            credentials.access_secret,
-            utc.timestamp(),
-            nonce)
-
+    format!(
+        "OAuth realm=\"{}/\", \
+         oauth_consumer_key=\"{}\", \
+         oauth_token=\"{}\", \
+         oauth_signature_method=\"PLAINTEXT\", \
+         oauth_signature=\"%26{}\", \
+         oauth_timestamp=\"{}\", \
+         oauth_nonce=\"{}\", \
+         oauth_version=\"1.0\"",
+        API_BASE,
+        credentials.consumer_key,
+        credentials.access_token,
+        credentials.access_secret,
+        utc.timestamp(),
+        nonce
+    )
 }
 
 pub fn get_merge_proposals(name: &str) -> Result<Vec<MergeProposal>> {
-    let url = format!("{}{}?ws.op=getMergeProposals&status=Needs review",
-                      LP_API,
-                      name);
+    let url = format!(
+        "{}{}?ws.op=getMergeProposals&status=Needs review",
+        LP_API,
+        name
+    );
     let mut entries = Vec::new();
     for json_entry in get::<JsonCollection<JsonMergeProposal>>(&url)?.entries {
         entries.push(MergeProposal::from_json(json_entry)?);

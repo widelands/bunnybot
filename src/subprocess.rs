@@ -2,7 +2,7 @@ use errors::*;
 use std::path::Path;
 use std::process;
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Verbose {
     Yes,
     No,
@@ -44,5 +44,3 @@ pub fn run_command(args: &[&str], cwd: &Path, verbose: Verbose) -> Result<Output
     }
     Ok(output)
 }
-
-

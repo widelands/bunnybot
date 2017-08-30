@@ -10,7 +10,10 @@ pub struct Pidfile;
 
 impl Pidfile {
     pub fn new() -> Result<Self> {
-        let open_result = fs::OpenOptions::new().write(true).create_new(true).open(&*PIDFILE);
+        let open_result = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&*PIDFILE);
         if open_result.is_err() {
             bail!(ErrorKind::PidFileExists);
         }

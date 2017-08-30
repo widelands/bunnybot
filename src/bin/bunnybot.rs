@@ -1,18 +1,18 @@
 #![recursion_limit = "1024"]
 
-#[cfg(target_os = "linux")]
-extern crate scheduler;
-#[macro_use]
-extern crate lazy_static;
+extern crate bunnybot;
+extern crate clap;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
+extern crate lazy_static;
+extern crate regex;
+extern crate reqwest;
+#[cfg(target_os = "linux")]
+extern crate scheduler;
+#[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate bunnybot;
-extern crate reqwest;
-extern crate clap;
-extern crate regex;
 
 use std::collections::{HashMap, HashSet};
 use bunnybot::git;
@@ -31,20 +31,20 @@ lazy_static! {
 }
 
 
-#[derive(Debug,Serialize,Deserialize,Default,Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct BranchState {
     appveyor_state: launchpad::CiState,
     travis_state: launchpad::CiState,
 }
 
-#[derive(Debug,Serialize,Deserialize,Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct MergeProposalState {
     num_comments: usize,
     source_branch: String,
     target_branch: String,
 }
 
-#[derive(Debug,Serialize,Deserialize,Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct State {
     branches: HashMap<String, BranchState>,
     merge_proposals: Vec<MergeProposalState>,
@@ -54,37 +54,36 @@ impl State {
     pub fn load(data_dir: &Path) -> Result<Self> {
         let file = fs::File::open(&data_dir.join("state.json"))
             .chain_err(|| "Could not find state.json.")?;
-        let this = serde_json::from_reader(file)
-            .chain_err(|| "Could not parse state.json.")?;
+        let this = serde_json::from_reader(file).chain_err(|| "Could not parse state.json.")?;
         Ok(this)
     }
 
     pub fn save(&self, data_dir: &Path) -> Result<()> {
         let mut file = fs::File::create(&data_dir.join("state.json"))
             .chain_err(|| "Could not open state.json.")?;
-        serde_json::to_writer_pretty(&mut file, self)
-            .chain_err(|| "Could not write state.json")?;
+        serde_json::to_writer_pretty(&mut file, self).chain_err(|| "Could not write state.json")?;
         Ok(())
     }
 
-    pub fn find_or_insert_merge_proposal_state(&mut self,
-                                               mp: &launchpad::MergeProposal)
-                                               -> &mut MergeProposalState {
+    pub fn find_or_insert_merge_proposal_state(
+        &mut self,
+        mp: &launchpad::MergeProposal,
+    ) -> &mut MergeProposalState {
         let mut index = None;
         for (idx, item) in self.merge_proposals.iter().enumerate() {
             if item.source_branch == mp.source_branch.unique_name &&
-               item.target_branch == mp.target_branch.unique_name {
+                item.target_branch == mp.target_branch.unique_name
+            {
                 index = Some(idx);
                 break;
             }
         }
         if index.is_none() {
-            self.merge_proposals
-                .push(MergeProposalState {
-                          num_comments: 0,
-                          source_branch: mp.source_branch.unique_name.clone(),
-                          target_branch: mp.target_branch.unique_name.clone(),
-                      });
+            self.merge_proposals.push(MergeProposalState {
+                num_comments: 0,
+                source_branch: mp.source_branch.unique_name.clone(),
+                target_branch: mp.target_branch.unique_name.clone(),
+            });
             index = Some(self.merge_proposals.len() - 1);
         }
         self.merge_proposals.get_mut(index.unwrap()).unwrap()
@@ -101,11 +100,12 @@ impl State {
     }
 }
 
-fn delete_unmentioned_branches(slugs: &HashSet<String>,
-                               state: &mut State,
-                               bzr_repo: &Path,
-                               git_repo: &Path)
-                               -> Result<()> {
+fn delete_unmentioned_branches(
+    slugs: &HashSet<String>,
+    state: &mut State,
+    bzr_repo: &Path,
+    git_repo: &Path,
+) -> Result<()> {
     let mut checked_out_branches = HashSet::new();
     for path in fs::read_dir(bzr_repo).unwrap() {
         let path = path.unwrap().path();
@@ -119,12 +119,15 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
         println!("Deleting {} which is not mentioned anymore.", slug);
 
         // Ignore errors - most likely some branches where not really there.
-        let _ = git::delete_remote_branch(git_repo, slug)
-            .map_err(|err| println!("Ignored error while deleting remote branch: {}", err));
-        let _ = git::delete_local_branch(git_repo, slug)
-            .map_err(|err| println!("Ignored error while deleting local branch: {}", err));
-        let _ = fs::remove_dir_all(&bzr_repo.join(slug))
-            .map_err(|err| println!("Ignored error while deleting bzr dir: {}", err));
+        let _ = git::delete_remote_branch(git_repo, slug).map_err(|err| {
+            println!("Ignored error while deleting remote branch: {}", err)
+        });
+        let _ = git::delete_local_branch(git_repo, slug).map_err(|err| {
+            println!("Ignored error while deleting local branch: {}", err)
+        });
+        let _ = fs::remove_dir_all(&bzr_repo.join(slug)).map_err(|err| {
+            println!("Ignored error while deleting bzr dir: {}", err)
+        });
         state.remove_mentions_of(&slug);
     }
 
@@ -146,9 +149,10 @@ fn delete_unmentioned_branches(slugs: &HashSet<String>,
     Ok(())
 }
 
-fn build_ci_state_update(travis_state: &launchpad::CiState,
-                         appveyor_state: &launchpad::CiState)
-                         -> String {
+fn build_ci_state_update(
+    travis_state: &launchpad::CiState,
+    appveyor_state: &launchpad::CiState,
+) -> String {
     let mut comment = String::new();
     comment.push_str("Continuous integration builds have changed state:\n");
     comment.push_str("\n");
@@ -163,9 +167,17 @@ fn build_refuse_merge_comment(travis_state: &launchpad::CiState) -> String {
     let mut comment = String::new();
     comment.push_str("Refusing to merge, since Travis is not green. Use @bunnybot merge force for merging anyways.\n");
     comment.push_str("\n");
-    comment.push_str(&format!("Travis build {}. State: {}. Details: https://travis-ci.org/widelands/widelands/builds/{}.",
-            travis_state.number, travis_state.state, travis_state.id));
+    comment.push_str(&format!(
+        "Travis build {}. State: {}. Details: https://travis-ci.org/widelands/widelands/builds/{}.",
+        travis_state.number,
+        travis_state.state,
+        travis_state.id
+    ));
     comment
+}
+
+fn build_error_report_comment(err: &Error) -> String {
+    format!("Error merging this proposal:\n\n{}", err)
 }
 
 fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
@@ -175,12 +187,16 @@ fn update_git_master(bzr_repo: &Path, git_repo: &Path) -> Result<()> {
 
     // Merge trunk into master and push to github.
     git::checkout_branch(git_repo, "master")?;
-    run_command(&["git", "merge", "--ff-only", &trunk.slug],
-                git_repo,
-                Verbose::Yes)?;
-    run_command(&["git", "push", "github", "master", "--force"],
-                git_repo,
-                Verbose::Yes)?;
+    run_command(
+        &["git", "merge", "--ff-only", &trunk.slug],
+        git_repo,
+        Verbose::Yes,
+    )?;
+    run_command(
+        &["git", "push", "github", "master", "--force"],
+        git_repo,
+        Verbose::Yes,
+    )?;
     Ok(())
 }
 
@@ -192,13 +208,14 @@ fn set_nice_level() {
 #[cfg(not(target_os = "linux"))]
 fn set_nice_level() {}
 
-fn handle_merge_proposal(m: &launchpad::MergeProposal,
-                         credentials: &Credentials,
-                         state: &mut State,
-                         bzr_repo: &Path,
-                         git_repo: &Path,
-                         always_update: bool)
-                         -> Result<()> {
+fn handle_merge_proposal(
+    m: &launchpad::MergeProposal,
+    credentials: &Credentials,
+    state: &mut State,
+    bzr_repo: &Path,
+    git_repo: &Path,
+    always_update: bool,
+) -> Result<()> {
     let was_updated = m.source_branch.update(&bzr_repo)?;
     if always_update || was_updated {
         m.source_branch.update_git(&git_repo)?;
@@ -224,15 +241,18 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal,
 
     // Update branch state.
     {
-        let mut branch_state = state
+        let branch_state = state
             .branches
             .entry(m.source_branch.unique_name.clone())
             .or_insert(BranchState::default());
 
         if branch_state.travis_state.state != travis_state.state ||
-           branch_state.appveyor_state.state != appveyor_state.state {
-            m.add_comment(credentials,
-                             &build_ci_state_update(&travis_state, &appveyor_state))?;
+            branch_state.appveyor_state.state != appveyor_state.state
+        {
+            m.add_comment(
+                credentials,
+                &build_ci_state_update(&travis_state, &appveyor_state),
+            )?;
         }
 
         branch_state.travis_state = travis_state.clone();
@@ -245,18 +265,23 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal,
         let old_num_comments = merge_proposal_state.num_comments;
         merge_proposal_state.num_comments = m.comments.len();
         for comment in &m.comments[old_num_comments..] {
+            let result;
             if MERGE_FORCE_REGEX.find(&comment.message_body).is_some() {
-                m.merge(bzr_repo)?;
-                break;
-            }
-            if MERGE_REGEX.find(&comment.message_body).is_some() {
+                result = m.merge(bzr_repo);
+            } else if MERGE_REGEX.find(&comment.message_body).is_some() {
                 if travis_state.state != "passed" {
                     m.add_comment(credentials, &build_refuse_merge_comment(&travis_state))?;
+                    result = Ok(());
                 } else {
-                    m.merge(bzr_repo)?;
+                    result = m.merge(bzr_repo);
                 }
-                break;
+            } else {
+                continue;
             }
+            if let Err(err) = result {
+                m.add_comment(credentials, &build_error_report_comment(&err))?;
+            }
+            break;
         }
     }
     Ok(())
@@ -265,14 +290,18 @@ fn handle_merge_proposal(m: &launchpad::MergeProposal,
 fn parse_args() -> clap::ArgMatches<'static> {
     clap::App::new("Mergebot for the Widelands project")
         .version("1.0")
-        .arg(clap::Arg::with_name("data_dir")
-                 .long("data_dir")
-                 .help("Data directory.")
-                 .takes_value(true)
-                 .default_value("data"))
-        .arg(clap::Arg::with_name("always_update")
-                 .long("always_update")
-                 .help("Update git branches, even if it seems bzr has not changed."))
+        .arg(
+            clap::Arg::with_name("data_dir")
+                .long("data_dir")
+                .help("Data directory.")
+                .takes_value(true)
+                .default_value("data"),
+        )
+        .arg(
+            clap::Arg::with_name("always_update")
+                .long("always_update")
+                .help("Update git branches, even if it seems bzr has not changed."),
+        )
         .get_matches()
 }
 
@@ -291,17 +320,27 @@ fn run() -> Result<()> {
 
     let mut branches_slug = HashSet::<String>::new();
 
-    let merge_proposals = bunnybot::launchpad::get_merge_proposals("~widelands-dev/widelands/trunk",)?;
+    let merge_proposals =
+        bunnybot::launchpad::get_merge_proposals("~widelands-dev/widelands/trunk")?;
     for m in merge_proposals {
-        println!("===> Working on {} -> {}",
-                 m.source_branch.unique_name,
-                 m.target_branch.unique_name);
+        println!(
+            "===> Working on {} -> {}",
+            m.source_branch.unique_name,
+            m.target_branch.unique_name
+        );
         branches_slug.insert(m.target_branch.slug.clone());
         branches_slug.insert(m.source_branch.slug.clone());
 
         let before_state = state.clone();
-        if let Err(err) = handle_merge_proposal(&m, &credentials, &mut state, &bzr_repo, &git_repo, always_update) {
-            println!("Error handling this proposal. Skipping. Err: {}", err);
+        if let Err(err) = handle_merge_proposal(
+            &m,
+            &credentials,
+            &mut state,
+            &bzr_repo,
+            &git_repo,
+            always_update,
+        ) {
+            println!("Unhandled error with this proposal. Skipping. Err: {}", err);
             state = before_state;
             continue;
         }

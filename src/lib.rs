@@ -1,17 +1,17 @@
 #![recursion_limit = "1024"]
 
+extern crate chrono;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde;
-extern crate serde_json;
+extern crate rand;
 extern crate regex;
 extern crate reqwest;
-extern crate rand;
-extern crate chrono;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 pub mod errors;
 pub mod git;

@@ -20,7 +20,11 @@ pub fn checkout_branch(git_repo: &Path, branch: &str) -> Result<()> {
 }
 
 pub fn delete_remote_branch(git_repo: &Path, branch: &str) -> Result<()> {
-    run_command(&["git", "push", "github", &format!(":{}", branch)], git_repo, Verbose::No)?;
+    run_command(
+        &["git", "push", "github", &format!(":{}", branch)],
+        git_repo,
+        Verbose::No,
+    )?;
     Ok(())
 }
 
