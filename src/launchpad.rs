@@ -163,6 +163,8 @@ impl Branch {
     /// Revert the changes in the branch (if any).
     fn revert(&self, bzr_repo: &Path) -> Result<()> {
         run_command(&["bzr", "revert"], &bzr_repo.join(&self.slug), Verbose::Yes)?;
+        run_command(&["bzr", "clean-tree", "--unknown", "--detritus", "--force"],
+                    &bzr_repo.join(&self.slug), Verbose::Yes)?;
         Ok(())
     }
 

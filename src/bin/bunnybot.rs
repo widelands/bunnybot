@@ -7,7 +7,6 @@ extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
 extern crate regex;
-extern crate reqwest;
 #[cfg(target_os = "linux")]
 extern crate scheduler;
 #[macro_use]
