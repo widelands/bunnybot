@@ -261,7 +261,12 @@ fn handle_merge_proposal(
     // Update merge proposal state.
     {
         let merge_proposal_state = state.find_or_insert_merge_proposal_state(&m);
-        let old_num_comments = merge_proposal_state.num_comments;
+        let old_num_comments = if merge_proposal_state.num_comments <= m.comments.len() {
+           merge_proposal_state.num_comments
+        } else {
+           println!("Number of comment s decreased. Probably a reopened PR. Forgetting state.");
+           0
+        };
         merge_proposal_state.num_comments = m.comments.len();
         for comment in &m.comments[old_num_comments..] {
             let result;
