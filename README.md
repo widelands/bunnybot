@@ -20,3 +20,18 @@ You need to register SSH keys for the GitHub and Launchpad users.
 TODO(sirver): Add a config.json sample.
 
 You also need git-remote-bzr in your path. https://github.com/felipec/git-remote-bzr
+
+Also you need pyformat and clang-format for merging.
+
+To set up data/git_repo, just clone. then
+
+~~~
+git remote add bzr_origin bzr::/home/bunnybot/bunnybot/data/bzr_repo
+~~~
+
+For the bzr_repo:
+
+~~~
+mkdir data/bzr_repo && cd data/bzr_repo
+bzr init-repository
+~~~
