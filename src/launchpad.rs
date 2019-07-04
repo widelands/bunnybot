@@ -1,17 +1,17 @@
-use reqwest;
-use errors::*;
-use serde_json;
-use serde;
-use reqwest::header::{Authorization, Headers};
-use rand::{self, Rng};
-use std::fs;
 use chrono::prelude::*;
-use std::path::Path;
-use regex::Regex;
-use subprocess::{run_command, Verbose};
-use std::io::Read;
-use std::collections::HashMap;
+use errors::*;
 use git;
+use rand::{self, Rng};
+use regex::Regex;
+use reqwest;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use serde;
+use serde_json;
+use std::collections::HashMap;
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+use subprocess::{run_command, Verbose};
 
 const API_BASE: &str = "https://api.launchpad.net";
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
@@ -111,7 +111,8 @@ struct JsonAppveyorBuild {
 #[derive(Debug, Deserialize)]
 struct JsonAppveyorBranch {
     status: String,
-    #[serde(rename = "buildNumber")] build_number: i64,
+    #[serde(rename = "buildNumber")]
+    build_number: i64,
     version: String,
 }
 
@@ -163,8 +164,11 @@ impl Branch {
     /// Revert the changes in the branch (if any).
     fn revert(&self, bzr_repo: &Path) -> Result<()> {
         run_command(&["bzr", "revert"], &bzr_repo.join(&self.slug), Verbose::Yes)?;
-        run_command(&["bzr", "clean-tree", "--unknown", "--detritus", "--force"],
-                    &bzr_repo.join(&self.slug), Verbose::Yes)?;
+        run_command(
+            &["bzr", "clean-tree", "--unknown", "--detritus", "--force"],
+            &bzr_repo.join(&self.slug),
+            Verbose::Yes,
+        )?;
         Ok(())
     }
 
@@ -349,8 +353,7 @@ impl MergeProposal {
         // API.
         let subject = format!(
             "[Merge] {} into {}",
-            source_branch_json.bzr_identity,
-            target_branch_json.bzr_identity
+            source_branch_json.bzr_identity, target_branch_json.bzr_identity
         );
 
         let mut values = HashMap::new();
@@ -379,7 +382,7 @@ where
     D: serde::Deserialize,
 {
     let mut response = reqwest::get(url).chain_err(|| ErrorKind::Http(url.to_string()))?;
-    if response.status() != reqwest::StatusCode::Ok {
+    if response.status() != reqwest::StatusCode::OK {
         bail!(ErrorKind::Http(url.to_string()));
     }
 
@@ -391,12 +394,15 @@ where
 }
 
 fn post(url: &str, credentials: &Credentials, fields: HashMap<&str, &str>) -> reqwest::Result<()> {
-    let client = reqwest::Client::new()?;
+    let client = reqwest::Client::new();
 
-    let mut headers = Headers::new();
-    headers.set(Authorization(build_oauth_str(credentials)));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&build_oauth_str(credentials)).unwrap(),
+    );
 
-    client.post(url)?.form(&fields)?.headers(headers).send()?;
+    client.post(url).form(&fields).headers(headers).send()?;
     Ok(())
 }
 
@@ -425,8 +431,7 @@ fn build_oauth_str(credentials: &Credentials) -> String {
 pub fn get_merge_proposals(name: &str) -> Result<Vec<MergeProposal>> {
     let url = format!(
         "{}{}?ws.op=getMergeProposals&status=Needs review",
-        LP_API,
-        name
+        LP_API, name
     );
     let mut entries = Vec::new();
     for json_entry in get::<JsonCollection<JsonMergeProposal>>(&url)?.entries {

@@ -32,10 +32,10 @@ pub fn run_command(args: &[&str], cwd: &Path, verbose: Verbose) -> Result<Output
 
     if verbose == Verbose::Yes {
         for line in output.stdout.lines() {
-            println!("    {}", line.trim_right());
+            println!("    {}", line.trim_end());
         }
         for line in output.stderr.lines() {
-            println!("    {}", line.trim_right());
+            println!("    {}", line.trim_end());
         }
     }
 

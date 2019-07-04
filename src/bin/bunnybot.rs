@@ -13,14 +13,14 @@ extern crate scheduler;
 extern crate serde_derive;
 extern crate serde_json;
 
-use std::collections::{HashMap, HashSet};
-use bunnybot::git;
 use bunnybot::errors::*;
+use bunnybot::git;
+use bunnybot::launchpad;
 use bunnybot::launchpad::Credentials;
 use bunnybot::pidfile::Pidfile;
-use bunnybot::launchpad;
-use regex::Regex;
 use bunnybot::subprocess::{run_command, Verbose};
+use regex::Regex;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -28,7 +28,6 @@ lazy_static! {
     static ref MERGE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge").unwrap();
     static ref MERGE_FORCE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge force").unwrap();
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct BranchState {
@@ -70,8 +69,8 @@ impl State {
     ) -> &mut MergeProposalState {
         let mut index = None;
         for (idx, item) in self.merge_proposals.iter().enumerate() {
-            if item.source_branch == mp.source_branch.unique_name &&
-                item.target_branch == mp.target_branch.unique_name
+            if item.source_branch == mp.source_branch.unique_name
+                && item.target_branch == mp.target_branch.unique_name
             {
                 index = Some(idx);
                 break;
@@ -91,7 +90,8 @@ impl State {
     pub fn remove_mentions_of(&mut self, slug: &str) {
         self.merge_proposals
             .retain(|m| launchpad::slugify(&m.source_branch) != slug);
-        let new_branches = self.branches
+        let new_branches = self
+            .branches
             .drain()
             .filter(|&(ref k, _)| launchpad::slugify(&k) != slug)
             .collect();
@@ -118,15 +118,12 @@ fn delete_unmentioned_branches(
         println!("Deleting {} which is not mentioned anymore.", slug);
 
         // Ignore errors - most likely some branches where not really there.
-        let _ = git::delete_remote_branch(git_repo, slug).map_err(|err| {
-            println!("Ignored error while deleting remote branch: {}", err)
-        });
-        let _ = git::delete_local_branch(git_repo, slug).map_err(|err| {
-            println!("Ignored error while deleting local branch: {}", err)
-        });
-        let _ = fs::remove_dir_all(&bzr_repo.join(slug)).map_err(|err| {
-            println!("Ignored error while deleting bzr dir: {}", err)
-        });
+        let _ = git::delete_remote_branch(git_repo, slug)
+            .map_err(|err| println!("Ignored error while deleting remote branch: {}", err));
+        let _ = git::delete_local_branch(git_repo, slug)
+            .map_err(|err| println!("Ignored error while deleting local branch: {}", err));
+        let _ = fs::remove_dir_all(&bzr_repo.join(slug))
+            .map_err(|err| println!("Ignored error while deleting bzr dir: {}", err));
         state.remove_mentions_of(&slug);
     }
 
@@ -168,9 +165,7 @@ fn build_refuse_merge_comment(travis_state: &launchpad::CiState) -> String {
     comment.push_str("\n");
     comment.push_str(&format!(
         "Travis build {}. State: {}. Details: https://travis-ci.org/widelands/widelands/builds/{}.",
-        travis_state.number,
-        travis_state.state,
-        travis_state.id
+        travis_state.number, travis_state.state, travis_state.id
     ));
     comment
 }
@@ -245,8 +240,8 @@ fn handle_merge_proposal(
             .entry(m.source_branch.unique_name.clone())
             .or_insert(BranchState::default());
 
-        if branch_state.travis_state.state != travis_state.state ||
-            branch_state.appveyor_state.state != appveyor_state.state
+        if branch_state.travis_state.state != travis_state.state
+            || branch_state.appveyor_state.state != appveyor_state.state
         {
             m.add_comment(
                 credentials,
@@ -262,10 +257,10 @@ fn handle_merge_proposal(
     {
         let merge_proposal_state = state.find_or_insert_merge_proposal_state(&m);
         let old_num_comments = if merge_proposal_state.num_comments <= m.comments.len() {
-           merge_proposal_state.num_comments
+            merge_proposal_state.num_comments
         } else {
-           println!("Number of comment s decreased. Probably a reopened PR. Forgetting state.");
-           0
+            println!("Number of comment s decreased. Probably a reopened PR. Forgetting state.");
+            0
         };
         merge_proposal_state.num_comments = m.comments.len();
         for comment in &m.comments[old_num_comments..] {
@@ -329,8 +324,7 @@ fn run() -> Result<()> {
     for m in merge_proposals {
         println!(
             "===> Working on {} -> {}",
-            m.source_branch.unique_name,
-            m.target_branch.unique_name
+            m.source_branch.unique_name, m.target_branch.unique_name
         );
         branches_slug.insert(m.target_branch.slug.clone());
         branches_slug.insert(m.source_branch.slug.clone());

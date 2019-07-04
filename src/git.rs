@@ -1,6 +1,6 @@
-use subprocess::{run_command, Verbose};
 use errors::*;
 use std::path::Path;
+use subprocess::{run_command, Verbose};
 
 pub fn branches(git_repo: &Path) -> Result<Vec<String>> {
     let output = run_command(&["git", "branch"], git_repo, Verbose::No)?.stdout;
