@@ -1,4 +1,5 @@
 use crate::errors::*;
+use error_chain::bail;
 use std::path::Path;
 use std::process;
 

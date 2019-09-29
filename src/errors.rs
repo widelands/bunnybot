@@ -1,5 +1,7 @@
 use crate::subprocess::Output;
 
+use error_chain::*;
+
 error_chain! {
     errors {
         PidFileExists {

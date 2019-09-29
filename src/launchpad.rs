@@ -1,6 +1,9 @@
-use chrono::prelude::*;
 use crate::errors::*;
 use crate::git;
+use crate::subprocess::{run_command, Verbose};
+use chrono::prelude::*;
+use error_chain::bail;
+use lazy_static::lazy_static;
 use rand::{self, Rng};
 use regex::Regex;
 use reqwest;
@@ -11,7 +14,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use crate::subprocess::{run_command, Verbose};
 
 const API_BASE: &str = "https://api.launchpad.net";
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";
@@ -23,7 +25,7 @@ lazy_static! {
     static ref SLUG_REGEX: Regex = Regex::new(r"[^A-Za-z0-9]").unwrap();
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Credentials {
     consumer_key: String,
     access_token: String,
@@ -40,12 +42,12 @@ impl Credentials {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct JsonCollection<T> {
     entries: Vec<T>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct JsonMergeProposal {
     self_link: String,
     all_comments_collection_link: String,
@@ -54,14 +56,14 @@ struct JsonMergeProposal {
     commit_message: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct JsonBranch {
     self_link: String,
     bzr_identity: String,
     unique_name: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 pub struct Comment {
     pub message_body: String,
 }
@@ -73,19 +75,19 @@ pub struct Branch {
     pub slug: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct JsonTravisBuild {
     branch: JsonTravisBranch,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct JsonTravisBranch {
     state: String,
     number: String,
     id: i64,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, Clone)]
 pub struct CiState {
     pub state: String,
     pub id: String,
@@ -103,12 +105,12 @@ impl CiState {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct JsonAppveyorBuild {
     build: JsonAppveyorBranch,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct JsonAppveyorBranch {
     status: String,
     #[serde(rename = "buildNumber")]
@@ -379,7 +381,7 @@ impl MergeProposal {
 
 fn get<D>(url: &str) -> Result<D>
 where
-    D: serde::Deserialize,
+    D: serde::de::DeserializeOwned,
 {
     let mut response = reqwest::get(url).chain_err(|| ErrorKind::Http(url.to_string()))?;
     if response.status() != reqwest::StatusCode::OK {

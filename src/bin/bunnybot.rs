@@ -1,24 +1,13 @@
 #![recursion_limit = "1024"]
 
-extern crate bunnybot;
-extern crate structopt;
-#[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate lazy_static;
-extern crate regex;
-#[cfg(target_os = "linux")]
-extern crate scheduler;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-
 use bunnybot::errors::*;
 use bunnybot::git;
 use bunnybot::launchpad;
 use bunnybot::launchpad::Credentials;
 use bunnybot::pidfile::Pidfile;
 use bunnybot::subprocess::{run_command, Verbose};
+use error_chain::quick_main;
+use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -30,20 +19,20 @@ lazy_static! {
     static ref MERGE_FORCE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge force").unwrap();
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default, Clone)]
 struct BranchState {
     appveyor_state: launchpad::CiState,
     travis_state: launchpad::CiState,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 struct MergeProposalState {
     num_comments: usize,
     source_branch: String,
     target_branch: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 struct State {
     branches: HashMap<String, BranchState>,
     merge_proposals: Vec<MergeProposalState>,

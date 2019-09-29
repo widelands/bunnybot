@@ -1,4 +1,6 @@
 use crate::errors::*;
+use error_chain::bail;
+use lazy_static::lazy_static;
 use std::fs;
 use std::path::PathBuf;
 
