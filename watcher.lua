@@ -13,8 +13,8 @@ return {
         command = "cargo build --color=always",
       },
       {
-        name = "Cargo build [release]",
-        command = "cargo build --release --color=always",
+        name = "Cargo clippy",
+        command = "cargo clippy --color=always",
       },
     },
     should_run = function(p)

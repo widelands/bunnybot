@@ -1,7 +1,7 @@
 #![recursion_limit = "1024"]
 
 extern crate bunnybot;
-extern crate clap;
+extern crate structopt;
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
@@ -22,7 +22,8 @@ use bunnybot::subprocess::{run_command, Verbose};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use structopt::StructOpt;
 
 lazy_static! {
     static ref MERGE_REGEX: Regex = Regex::new(r"(?im)^@bunnybot.*merge").unwrap();
@@ -286,36 +287,27 @@ fn handle_merge_proposal(
     Ok(())
 }
 
-fn parse_args() -> clap::ArgMatches<'static> {
-    clap::App::new("Mergebot for the Widelands project")
-        .version("1.0")
-        .arg(
-            clap::Arg::with_name("data_dir")
-                .long("data_dir")
-                .help("Data directory.")
-                .takes_value(true)
-                .default_value("data"),
-        )
-        .arg(
-            clap::Arg::with_name("always_update")
-                .long("always_update")
-                .help("Update git branches, even if it seems bzr has not changed."),
-        )
-        .get_matches()
+#[derive(Debug, StructOpt)]
+#[structopt(name = "bunnybot", about = "Mergebot for the Widelands project")]
+struct Arguments {
+    /// Input file
+    #[structopt(parse(from_os_str), default_value = "data")]
+    data_dir: PathBuf,
+
+    /// Update git branches, even if it seems bzr has not changed.
+    always_update: bool,
 }
 
 fn run() -> Result<()> {
     let _pidfile = Pidfile::new()?;
     set_nice_level();
 
-    let args = parse_args();
-    let always_update = args.occurrences_of("always_update") > 0;
-    let data_dir = Path::new(args.value_of("data_dir").unwrap());
-    let bzr_repo = data_dir.join(Path::new("bzr_repo"));
-    let git_repo = data_dir.join(Path::new("git_repo"));
+    let args = Arguments::from_args();
+    let bzr_repo = args.data_dir.join(Path::new("bzr_repo"));
+    let git_repo = args.data_dir.join(Path::new("git_repo"));
 
-    let credentials = Credentials::load(&data_dir)?;
-    let mut state = State::load(&data_dir)?;
+    let credentials = Credentials::load(&args.data_dir)?;
+    let mut state = State::load(&args.data_dir)?;
 
     let mut branches_slug = HashSet::<String>::new();
 
@@ -336,21 +328,21 @@ fn run() -> Result<()> {
             &mut state,
             &bzr_repo,
             &git_repo,
-            always_update,
+            args.always_update,
         ) {
             println!("Unhandled error with this proposal. Skipping. Err: {}", err);
             state = before_state;
             continue;
         }
 
-        state.save(&data_dir).unwrap();
+        state.save(&args.data_dir).unwrap();
         println!("\n");
     }
-    state.save(&data_dir).unwrap();
+    state.save(&args.data_dir).unwrap();
 
     update_git_master(&bzr_repo, &git_repo)?;
     delete_unmentioned_branches(&branches_slug, &mut state, &bzr_repo, &git_repo)?;
-    state.save(&data_dir).unwrap();
+    state.save(&args.data_dir).unwrap();
 
     Ok(())
 }

@@ -1,5 +1,3 @@
-#![allow(unused_doc_comment)]
-
 use subprocess::Output;
 
 error_chain! {
