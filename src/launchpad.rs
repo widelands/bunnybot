@@ -1,6 +1,6 @@
 use chrono::prelude::*;
-use errors::*;
-use git;
+use crate::errors::*;
+use crate::git;
 use rand::{self, Rng};
 use regex::Regex;
 use reqwest;
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use subprocess::{run_command, Verbose};
+use crate::subprocess::{run_command, Verbose};
 
 const API_BASE: &str = "https://api.launchpad.net";
 const LP_API: &'static str = "https://api.launchpad.net/1.0/";

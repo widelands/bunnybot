@@ -1,4 +1,4 @@
-use subprocess::Output;
+use crate::subprocess::Output;
 
 error_chain! {
     errors {
