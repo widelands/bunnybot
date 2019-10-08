@@ -1,5 +1,13 @@
 # Widelands's BunnyBot
 
+📢📢📢 **Widelands's bunnybot is retired** 
+
+Wideland's bunnybot was the merge and mirror-to-github bot we used to use for development on Launchpad.
+After moving to GitHub, it is no longer necessary, so we retired it. This repo
+has therefore only historical importance.
+
+Old README below.
+
 This is the merge bot for Widelands. It is meant to make daily development
 easier. This includes automating rote task like merging branches, but also
 giving us access to continuous integration on Launchpad through mirroring certain branches to
